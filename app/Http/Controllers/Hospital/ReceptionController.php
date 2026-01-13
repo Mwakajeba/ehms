@@ -1,0 +1,434 @@
+<?php
+
+namespace App\Http\Controllers\Hospital;
+
+use App\Http\Controllers\Controller;
+use App\Models\Hospital\Patient;
+use App\Models\Hospital\Visit;
+use App\Models\Hospital\VisitBill;
+use App\Models\Hospital\VisitBillItem;
+use App\Models\Hospital\VisitDepartment;
+use App\Models\Hospital\HospitalDepartment;
+use App\Models\Hospital\PatientDeletionRequest;
+use App\Models\Inventory\Item;
+use App\Services\Hospital\MrnService;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\DB;
+use Carbon\Carbon;
+
+class ReceptionController extends Controller
+{
+    /**
+     * Display reception dashboard
+     */
+    public function index()
+    {
+        $user = Auth::user();
+        $companyId = $user->company_id;
+        $branchId = session('branch_id') ?? $user->branch_id;
+
+        // Get active visits with their current department status
+        $activeVisits = Visit::with(['patient', 'visitDepartments.department'])
+            ->where('company_id', $companyId)
+            ->where('branch_id', $branchId)
+            ->whereIn('status', ['pending', 'in_progress'])
+            ->orderBy('visit_date', 'desc')
+            ->get();
+
+        // Get waiting patients by department
+        $waitingByDepartment = VisitDepartment::with(['visit.patient', 'department'])
+            ->whereHas('visit', function ($q) use ($companyId, $branchId) {
+                $q->where('company_id', $companyId)
+                    ->where('branch_id', $branchId);
+            })
+            ->where('status', 'waiting')
+            ->get()
+            ->groupBy('department.type');
+
+        // Get in-service patients by department
+        $inServiceByDepartment = VisitDepartment::with(['visit.patient', 'department'])
+            ->whereHas('visit', function ($q) use ($companyId, $branchId) {
+                $q->where('company_id', $companyId)
+                    ->where('branch_id', $branchId);
+            })
+            ->where('status', 'in_service')
+            ->get()
+            ->groupBy('department.type');
+
+        return view('hospital.reception.index', compact('activeVisits', 'waitingByDepartment', 'inServiceByDepartment'));
+    }
+
+    /**
+     * Show patient registration form
+     */
+    public function createPatient()
+    {
+        return view('hospital.reception.patients.create');
+    }
+
+    /**
+     * Register a new patient
+     */
+    public function storePatient(Request $request)
+    {
+        $validated = $request->validate([
+            'first_name' => 'required|string|max:255',
+            'last_name' => 'required|string|max:255',
+            'date_of_birth' => 'nullable|date',
+            'gender' => 'nullable|in:male,female,other',
+            'phone' => 'nullable|string|max:20',
+            'email' => 'nullable|email|max:255',
+            'address' => 'nullable|string',
+            'next_of_kin_name' => 'nullable|string|max:255',
+            'next_of_kin_phone' => 'nullable|string|max:20',
+            'next_of_kin_relationship' => 'nullable|string|max:255',
+            'medical_history' => 'nullable|string',
+            'allergies' => 'nullable|string',
+            'blood_group' => 'nullable|string|max:10',
+            'id_number' => 'nullable|string|max:50',
+            'insurance_number' => 'nullable|string|max:50',
+            'insurance_type' => 'nullable|in:NHIF,CHF,Jubilee,Strategy,None',
+        ]);
+
+        try {
+            DB::beginTransaction();
+
+            $user = Auth::user();
+            $companyId = $user->company_id;
+            $branchId = session('branch_id') ?? $user->branch_id;
+
+            // Generate MRN
+            $mrn = MrnService::generate($companyId, $branchId);
+
+            // Create patient
+            $patient = Patient::create(array_merge($validated, [
+                'mrn' => $mrn,
+                'company_id' => $companyId,
+                'branch_id' => $branchId,
+                'created_by' => $user->id,
+                'updated_by' => $user->id,
+            ]));
+
+            DB::commit();
+
+            return redirect()->route('hospital.reception.patients.show', $patient->id)
+                ->with('success', 'Patient registered successfully. MRN: ' . $mrn);
+        } catch (\Exception $e) {
+            DB::rollBack();
+            return back()->withInput()->withErrors(['error' => 'Failed to register patient: ' . $e->getMessage()]);
+        }
+    }
+
+    /**
+     * Search patients
+     */
+    public function searchPatients(Request $request)
+    {
+        $term = $request->get('term', '');
+        $user = Auth::user();
+        $companyId = $user->company_id;
+        $branchId = session('branch_id') ?? $user->branch_id;
+
+        $patients = Patient::byCompany($companyId)
+            ->byBranch($branchId)
+            ->search($term)
+            ->active()
+            ->limit(20)
+            ->get();
+
+        return response()->json($patients);
+    }
+
+    /**
+     * Show patient details
+     */
+    public function showPatient($id)
+    {
+        $patient = Patient::with(['visits', 'company', 'branch'])->findOrFail($id);
+        return view('hospital.reception.patients.show', compact('patient'));
+    }
+
+    /**
+     * Edit patient form
+     */
+    public function editPatient($id)
+    {
+        $patient = Patient::findOrFail($id);
+        return view('hospital.reception.patients.edit', compact('patient'));
+    }
+
+    /**
+     * Update patient
+     */
+    public function updatePatient(Request $request, $id)
+    {
+        $validated = $request->validate([
+            'first_name' => 'required|string|max:255',
+            'last_name' => 'required|string|max:255',
+            'date_of_birth' => 'nullable|date',
+            'gender' => 'nullable|in:male,female,other',
+            'phone' => 'nullable|string|max:20',
+            'email' => 'nullable|email|max:255',
+            'address' => 'nullable|string',
+            'next_of_kin_name' => 'nullable|string|max:255',
+            'next_of_kin_phone' => 'nullable|string|max:20',
+            'next_of_kin_relationship' => 'nullable|string|max:255',
+            'medical_history' => 'nullable|string',
+            'allergies' => 'nullable|string',
+            'blood_group' => 'nullable|string|max:10',
+            'id_number' => 'nullable|string|max:50',
+            'insurance_number' => 'nullable|string|max:50',
+            'insurance_type' => 'nullable|in:NHIF,CHF,Jubilee,Strategy,None',
+        ]);
+
+        try {
+            $patient = Patient::findOrFail($id);
+            $patient->update(array_merge($validated, [
+                'updated_by' => Auth::id(),
+            ]));
+
+            return redirect()->route('hospital.reception.patients.show', $patient->id)
+                ->with('success', 'Patient updated successfully.');
+        } catch (\Exception $e) {
+            return back()->withInput()->withErrors(['error' => 'Failed to update patient: ' . $e->getMessage()]);
+        }
+    }
+
+    /**
+     * Request patient deletion (requires approval)
+     */
+    public function requestPatientDeletion(Request $request, $id)
+    {
+        $validated = $request->validate([
+            'reason' => 'required|string|min:10',
+        ]);
+
+        try {
+            $patient = Patient::findOrFail($id);
+            $user = Auth::user();
+
+            PatientDeletionRequest::create([
+                'patient_id' => $patient->id,
+                'reason' => $validated['reason'],
+                'status' => 'pending',
+                'initiated_by' => $user->id,
+                'company_id' => $user->company_id,
+                'branch_id' => session('branch_id') ?? $user->branch_id,
+            ]);
+
+            return redirect()->route('hospital.reception.patients.show', $patient->id)
+                ->with('success', 'Deletion request submitted. Waiting for approval.');
+        } catch (\Exception $e) {
+            return back()->withErrors(['error' => 'Failed to submit deletion request: ' . $e->getMessage()]);
+        }
+    }
+
+    /**
+     * Create a new visit
+     */
+    public function createVisit($patientId)
+    {
+        $patient = Patient::findOrFail($patientId);
+        $departments = HospitalDepartment::active()
+            ->where('company_id', Auth::user()->company_id)
+            ->get();
+        
+        // Get services from inventory_items where item_type = 'service'
+        $services = Item::where('company_id', Auth::user()->company_id)
+            ->where('item_type', 'service')
+            ->where('is_active', true)
+            ->orderBy('name')
+            ->get();
+
+        return view('hospital.reception.visits.create', compact('patient', 'departments', 'services'));
+    }
+
+    /**
+     * Store a new visit
+     */
+    public function storeVisit(Request $request, $patientId)
+    {
+        $validated = $request->validate([
+            'visit_type' => 'required|in:new,follow_up,emergency',
+            'chief_complaint' => 'nullable|string',
+            'departments' => 'required|array|min:1',
+            'departments.*' => 'exists:hospital_departments,id',
+            'services' => 'nullable|array',
+            'services.*.service_id' => 'exists:inventory_items,id',
+            'services.*.quantity' => 'nullable|integer|min:1',
+        ]);
+
+        try {
+            DB::beginTransaction();
+
+            $user = Auth::user();
+            $companyId = $user->company_id;
+            $branchId = session('branch_id') ?? $user->branch_id;
+            $patient = Patient::findOrFail($patientId);
+
+            // Generate visit number
+            $visitNumber = 'VIS-' . now()->format('Ymd') . '-' . str_pad(Visit::whereDate('visit_date', today())->count() + 1, 4, '0', STR_PAD_LEFT);
+
+            // Create visit
+            $visit = Visit::create([
+                'visit_number' => $visitNumber,
+                'patient_id' => $patient->id,
+                'visit_type' => $validated['visit_type'],
+                'status' => 'pending',
+                'chief_complaint' => $validated['chief_complaint'] ?? null,
+                'company_id' => $companyId,
+                'branch_id' => $branchId,
+                'created_by' => $user->id,
+                'visit_date' => now(),
+            ]);
+
+            // Create visit departments
+            // Auto-add Triage if not selected (unless going directly to Pharmacy only)
+            $selectedDepartments = collect($validated['departments']);
+            $hasTriage = HospitalDepartment::whereIn('id', $validated['departments'])
+                ->where('type', 'triage')
+                ->exists();
+            
+            $hasOnlyPharmacy = HospitalDepartment::whereIn('id', $validated['departments'])
+                ->where('type', 'pharmacy')
+                ->count() === $selectedDepartments->count() && $selectedDepartments->count() === 1;
+            
+            // If no Triage and not going directly to Pharmacy, add Triage automatically
+            if (!$hasTriage && !$hasOnlyPharmacy) {
+                $triageDept = HospitalDepartment::where('company_id', $companyId)
+                    ->where('type', 'triage')
+                    ->where('is_active', true)
+                    ->first();
+                
+                if ($triageDept) {
+                    $validated['departments'][] = $triageDept->id;
+                }
+            }
+            
+            $sequence = 1;
+            foreach ($validated['departments'] as $departmentId) {
+                VisitDepartment::create([
+                    'visit_id' => $visit->id,
+                    'department_id' => $departmentId,
+                    'status' => 'waiting',
+                    'waiting_started_at' => now(),
+                    'sequence' => $sequence++,
+                ]);
+            }
+
+            // Create pre-bill if services are selected
+            if (!empty($validated['services'])) {
+                $billNumber = 'BILL-' . now()->format('Ymd') . '-' . str_pad(VisitBill::whereDate('created_at', today())->count() + 1, 4, '0', STR_PAD_LEFT);
+                
+                $bill = VisitBill::create([
+                    'bill_number' => $billNumber,
+                    'visit_id' => $visit->id,
+                    'patient_id' => $patient->id,
+                    'bill_type' => 'pre_bill',
+                    'subtotal' => 0,
+                    'total' => 0,
+                    'payment_status' => 'pending',
+                    'clearance_status' => 'pending',
+                    'company_id' => $companyId,
+                    'branch_id' => $branchId,
+                    'created_by' => $user->id,
+                ]);
+
+                $subtotal = 0;
+                foreach ($validated['services'] as $serviceData) {
+                    if (empty($serviceData['service_id'])) {
+                        continue; // Skip empty service selections
+                    }
+                    
+                    $service = Item::find($serviceData['service_id']);
+                    if (!$service || $service->item_type !== 'service') {
+                        continue; // Skip if not a service
+                    }
+                    
+                    $quantity = $serviceData['quantity'] ?? 1;
+                    $itemTotal = $service->unit_price * $quantity;
+                    $subtotal += $itemTotal;
+
+                    VisitBillItem::create([
+                        'bill_id' => $bill->id,
+                        'item_type' => 'service',
+                        'service_id' => $service->id,
+                        'item_name' => $service->name,
+                        'quantity' => $quantity,
+                        'unit_price' => $service->unit_price,
+                        'total' => $itemTotal,
+                    ]);
+                }
+
+                $bill->subtotal = $subtotal;
+                $bill->total = $subtotal;
+                $bill->balance = $subtotal;
+                $bill->save();
+            }
+
+            DB::commit();
+
+            return redirect()->route('hospital.reception.visits.show', $visit->id)
+                ->with('success', 'Visit created successfully.');
+        } catch (\Exception $e) {
+            DB::rollBack();
+            return back()->withInput()->withErrors(['error' => 'Failed to create visit: ' . $e->getMessage()]);
+        }
+    }
+
+    /**
+     * Show visit details
+     */
+    public function showVisit($id)
+    {
+        $visit = Visit::with([
+            'patient',
+            'visitDepartments.department',
+            'bills.items',
+            'triageVitals',
+            'consultation',
+        ])->findOrFail($id);
+
+        return view('hospital.reception.visits.show', compact('visit'));
+    }
+
+    /**
+     * Print lab/ultrasound results
+     */
+    public function printResults(Request $request, $visitId)
+    {
+        $visit = Visit::findOrFail($visitId);
+        $type = $request->get('type'); // 'lab' or 'ultrasound'
+
+        // Logic to print results
+        // This would typically generate a PDF
+        return response()->json(['message' => 'Print functionality to be implemented']);
+    }
+
+    /**
+     * Get patient location/department status
+     */
+    public function getPatientLocation($visitId)
+    {
+        $visit = Visit::with(['visitDepartments.department', 'patient'])
+            ->findOrFail($visitId);
+
+        $currentDepartment = $visit->visitDepartments()
+            ->whereIn('status', ['waiting', 'in_service'])
+            ->orderBy('sequence')
+            ->first();
+
+        return response()->json([
+            'visit' => $visit,
+            'current_department' => $currentDepartment ? [
+                'id' => $currentDepartment->department->id,
+                'name' => $currentDepartment->department->name,
+                'type' => $currentDepartment->department->type,
+                'status' => $currentDepartment->status,
+                'waiting_time' => $currentDepartment->waiting_time_formatted,
+                'service_time' => $currentDepartment->service_time_formatted,
+            ] : null,
+        ]);
+    }
+}

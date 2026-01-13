@@ -1,0 +1,644 @@
+@extends('layouts.main')
+
+@section('title', 'Generate Fee Invoice')
+
+@section('content')
+<div class="page-wrapper">
+    <div class="page-content">
+        <x-breadcrumbs-with-icons :links="[
+            ['label' => 'Dashboard', 'url' => route('dashboard'), 'icon' => 'bx bx-home'],
+            ['label' => 'College', 'url' => route('college.index'), 'icon' => 'bx bx-building'],
+            ['label' => 'Fee Management', 'url' => route('college.fee-management.index'), 'icon' => 'bx bx-money'],
+            ['label' => 'Fee Invoices', 'url' => route('college.fee-invoices.index'), 'icon' => 'bx bx-receipt'],
+            ['label' => 'Generate Invoice', 'url' => '#', 'icon' => 'bx bx-plus']
+        ]" />
+        <h6 class="mb-0 text-uppercase">GENERATE COLLEGE FEE INVOICE</h6>
+        <hr />
+
+        <!-- Progress Steps -->
+        <div class="row mb-4">
+            <div class="col-12">
+                <div class="card border-0 shadow-sm">
+                    <div class="card-body p-3">
+                        <div class="row text-center">
+                            <div class="col-md-4">
+                                <div class="step active" id="step-config">
+                                    <div class="step-circle bg-primary text-white">
+                                        <i class="bx bx-cog"></i>
+                                    </div>
+                                    <div class="step-title">Settings</div>
+                                </div>
+                            </div>
+                            <div class="col-md-4">
+                                <div class="step" id="step-validation">
+                                    <div class="step-circle bg-light text-muted">
+                                        <i class="bx bx-check-circle"></i>
+                                    </div>
+                                    <div class="step-title">Validate</div>
+                                </div>
+                            </div>
+                            <div class="col-md-4">
+                                <div class="step" id="step-generation">
+                                    <div class="step-circle bg-light text-muted">
+                                        <i class="bx bx-receipt"></i>
+                                    </div>
+                                    <div class="step-title">Generate</div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="progress mt-3" style="height: 4px;">
+                            <div class="progress-bar bg-primary" role="progressbar" style="width: 25%; transition: width 0.5s ease;" id="progress-bar"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <form id="fee-invoice-form" method="POST" action="{{ route('college.fee-invoices.store') }}">
+            @csrf
+
+            <div class="row">
+                <!-- Main Configuration Panel -->
+                <div class="col-12 col-lg-8">
+                    <!-- Basic Settings Card -->
+                    <div class="card shadow-sm mb-4">
+                        <div class="card-header bg-primary text-white">
+                            <h5 class="card-title mb-0">
+                                <i class="bx bx-cog me-2"></i>Invoice Configuration
+                            </h5>
+                        </div>
+                        <div class="card-body">
+                            <div class="row">
+                                <div class="col-md-6">
+                                    <div class="form-group mb-3">
+                                        <label for="program_id" class="form-label fw-bold">
+                                            <i class="bx bx-building text-primary me-1"></i>Program <span class="text-danger">*</span>
+                                        </label>
+                                        <select name="program_id" id="program_id" class="form-control form-control-lg @error('program_id') is-invalid @enderror" required>
+                                            <option value="">Select Program</option>
+                                            @foreach($programs as $program)
+                                                <option value="{{ $program->id }}" {{ old('program_id') == $program->id ? 'selected' : '' }}>
+                                                    <i class="bx bx-building"></i> {{ $program->name }}
+                                                </option>
+                                            @endforeach
+                                        </select>
+                                        @error('program_id')
+                                            <div class="invalid-feedback">
+                                                <i class="bx bx-error-circle me-1"></i>{{ $message }}
+                                            </div>
+                                        @enderror
+                                    </div>
+                                </div>
+
+                                <div class="col-md-6">
+                                    <div class="form-group mb-3">
+                                        <label for="fee_group_id" class="form-label fw-bold">
+                                            <i class="bx bx-group text-success me-1"></i>Fee Group <span class="text-danger">*</span>
+                                        </label>
+                                        <select name="fee_group_id" id="fee_group_id" class="form-control form-control-lg @error('fee_group_id') is-invalid @enderror" required>
+                                            <option value="">Select Fee Group</option>
+                                            @foreach($feeGroups as $feeGroup)
+                                                <option value="{{ $feeGroup->id }}" {{ old('fee_group_id') == $feeGroup->id ? 'selected' : '' }}>
+                                                    <i class="bx bx-group"></i> {{ $feeGroup->name }}
+                                                </option>
+                                            @endforeach
+                                        </select>
+                                        @error('fee_group_id')
+                                            <div class="invalid-feedback">
+                                                <i class="bx bx-error-circle me-1"></i>{{ $message }}
+                                            </div>
+                                        @enderror
+                                        <div class="form-text">
+                                            <small class="text-muted">
+                                                <i class="bx bx-info-circle me-1"></i>
+                                                Fee group determines the accounting treatment for this invoice
+                                            </small>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="row">
+                                <div class="col-md-6">
+                                    <div class="form-group mb-3">
+                                        <label for="fee_period" class="form-label fw-bold">
+                                            <i class="bx bx-calendar text-warning me-1"></i>Fee Period <span class="text-danger">*</span>
+                                        </label>
+                                        <select name="fee_period" id="fee_period" class="form-control form-control-lg @error('fee_period') is-invalid @enderror" required>
+                                            <option value="">Select Period</option>
+                                            <option value="Semester 1" {{ old('fee_period') == 'Semester 1' ? 'selected' : '' }}>
+                                                <i class="bx bx-calendar-week"></i> Semester 1
+                                            </option>
+                                            <option value="Semester 2" {{ old('fee_period') == 'Semester 2' ? 'selected' : '' }}>
+                                                <i class="bx bx-calendar-week"></i> Semester 2
+                                            </option>
+                                            <option value="Full year" {{ old('fee_period') == 'Full year' ? 'selected' : '' }}>
+                                                <i class="bx bx-calendar-week"></i> Full Year
+                                            </option>
+                                        </select>
+                                        @error('fee_period')
+                                            <div class="invalid-feedback">
+                                                <i class="bx bx-error-circle me-1"></i>{{ $message }}
+                                            </div>
+                                        @enderror
+                                    </div>
+                                </div>
+
+                                <div class="col-md-6">
+                                    <div class="form-group mb-3">
+                                        <label for="due_date" class="form-label fw-bold">
+                                            <i class="bx bx-calendar-check text-info me-1"></i>Due Date <span class="text-danger">*</span>
+                                        </label>
+                                        <input type="date" name="due_date" id="due_date" class="form-control form-control-lg @error('due_date') is-invalid @enderror"
+                                               value="{{ old('due_date', date('Y-m-d', strtotime('+30 days'))) }}" min="{{ date('Y-m-d') }}" required>
+                                        @error('due_date')
+                                            <div class="invalid-feedback">
+                                                <i class="bx bx-error-circle me-1"></i>{{ $message }}
+                                            </div>
+                                        @enderror
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="row">
+                                <div class="col-md-6">
+                                    <div class="form-group mb-3">
+                                        <label for="generation_type" class="form-label fw-bold">
+                                            <i class="bx bx-select-multiple text-info me-1"></i>Generation Type <span class="text-danger">*</span>
+                                        </label>
+                                        <select name="generation_type" id="generation_type" class="form-control form-control-lg @error('generation_type') is-invalid @enderror" required>
+                                            <option value="">Select Type</option>
+                                            <option value="all_students" {{ old('generation_type', 'all_students') == 'all_students' ? 'selected' : '' }}>
+                                                <i class="bx bx-group"></i> All Students (Bulk)
+                                            </option>
+                                            <option value="specific_students" {{ old('generation_type') == 'specific_students' ? 'selected' : '' }}>
+                                                <i class="bx bx-user"></i> Specific Students
+                                            </option>
+                                        </select>
+                                        @error('generation_type')
+                                            <div class="invalid-feedback">
+                                                <i class="bx bx-error-circle me-1"></i>{{ $message }}
+                                            </div>
+                                        @enderror
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Student Selection (Hidden by default) -->
+                            <div class="row" id="student-selection" style="display: none;">
+                                <div class="col-12">
+                                    <div class="form-group mb-3">
+                                        <label for="student_ids" class="form-label fw-bold">
+                                            <i class="bx bx-user text-danger me-1"></i>Select Students <span class="text-danger">*</span>
+                                        </label>
+                                        <select name="student_ids[]" id="student_ids" class="form-control form-control-lg @error('student_ids') is-invalid @enderror" multiple>
+                                            <option value="">Select Students</option>
+                                        </select>
+                                        @error('student_ids')
+                                            <div class="invalid-feedback">
+                                                <i class="bx bx-error-circle me-1"></i>{{ $message }}
+                                            </div>
+                                        @enderror
+                                        <div class="form-text">
+                                            <small class="text-muted">
+                                                <i class="bx bx-info-circle me-1"></i>
+                                                Hold Ctrl (or Cmd on Mac) to select multiple students
+                                            </small>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Preview Card -->
+                    <div class="card shadow-sm">
+                        <div class="card-header bg-light">
+                            <h5 class="card-title mb-0">
+                                <i class="bx bx-show me-2 text-secondary"></i>Invoice Preview
+                            </h5>
+                        </div>
+                        <div class="card-body">
+                            <div id="invoice-preview" class="text-center py-4">
+                                <i class="bx bx-receipt text-muted" style="font-size: 4rem;"></i>
+                                <h5 class="text-muted mt-3">Invoice Preview</h5>
+                                <p class="text-muted small">Configure your settings above to see the preview</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Sidebar Information -->
+                <div class="col-12 col-lg-4">
+                    <!-- Quick Stats Card -->
+                    <div class="card shadow-sm mb-4 border-success">
+                        <div class="card-header bg-success text-white">
+                            <h6 class="card-title mb-0">
+                                <i class="bx bx-bar-chart me-2"></i>Quick Statistics
+                            </h6>
+                        </div>
+                        <div class="card-body">
+                            <div class="row text-center">
+                                <div class="col-6">
+                                    <div class="p-2">
+                                        <h4 class="text-success mb-1">{{ $programs->count() }}</h4>
+                                        <small class="text-muted">Programs</small>
+                                    </div>
+                                </div>
+                                <div class="col-6">
+                                    <div class="p-2">
+                                        <h4 class="text-primary mb-1">{{ $feeGroups->count() }}</h4>
+                                        <small class="text-muted">Fee Groups</small>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Information Card -->
+                    <div class="card shadow-sm mb-4">
+                        <div class="card-header bg-info text-white">
+                            <h6 class="card-title mb-0">
+                                <i class="bx bx-info-circle me-2"></i>Generation Guide
+                            </h6>
+                        </div>
+                        <div class="card-body">
+                            <div class="mb-3">
+                                <h6 class="text-info"><i class="bx bx-bulb me-1"></i>All Students</h6>
+                                <p class="small text-muted mb-2">Creates invoices for all active students in the selected program automatically.</p>
+                            </div>
+                            <div class="mb-3">
+                                <h6 class="text-warning"><i class="bx bx-user me-1"></i>Specific Students</h6>
+                                <p class="small text-muted mb-2">Creates invoices for selected students only. Useful for individual cases.</p>
+                            </div>
+                            <div class="mb-3">
+                                <h6 class="text-success"><i class="bx bx-group me-1"></i>Fee Groups</h6>
+                                <p class="small text-muted mb-2">Required selection that determines accounting treatment and fee categorization.</p>
+                            </div>
+                            <div class="mb-3">
+                                <h6 class="text-success"><i class="bx bx-calendar me-1"></i>Fee Periods</h6>
+                                <p class="small text-muted mb-2">Semester-based fee collection periods for college students.</p>
+                            </div>
+                            <div class="alert alert-light small border">
+                                <i class="bx bx-info-circle text-info me-1"></i>
+                                <strong>Note:</strong> Invoices are generated based on active fee settings for the selected program and period.
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Action Buttons -->
+                    <div class="card shadow-sm">
+                        <div class="card-header bg-primary text-white">
+                            <h6 class="card-title mb-0">
+                                <i class="bx bx-play-circle me-2"></i>Actions
+                            </h6>
+                        </div>
+                        <div class="card-body">
+                            <div class="d-grid gap-2">
+                                <button type="submit" class="btn btn-primary btn-lg">
+                                    <i class="bx bx-check-circle me-2"></i>Start Validation Process
+                                </button>
+                                <a href="{{ route('college.fee-invoices.index') }}" class="btn btn-outline-secondary">
+                                    <i class="bx bx-arrow-back me-1"></i>Back to Invoices
+                                </a>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </form>
+    </div>
+</div>
+@endsection
+
+@push('styles')
+<link href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css" rel="stylesheet" />
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+<style>
+    .step {
+        position: relative;
+    }
+
+    .step-circle {
+        width: 50px;
+        height: 50px;
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        margin: 0 auto 10px;
+        font-size: 1.2rem;
+        border: 3px solid #e9ecef;
+        transition: all 0.3s ease;
+    }
+
+    .step.active .step-circle {
+        border-color: #0d6efd;
+        box-shadow: 0 0 0 3px rgba(13, 110, 253, 0.1);
+    }
+
+    .step-title {
+        font-size: 0.875rem;
+        font-weight: 500;
+        color: #6c757d;
+    }
+
+    .step.completed .step-circle {
+        background: linear-gradient(135deg, #198754 0%, #157347 100%) !important;
+        border-color: #198754 !important;
+    }
+
+    .step.completed .step-title {
+        color: #198754 !important;
+        font-weight: 600 !important;
+    }
+
+    .card {
+        border-radius: 0.75rem;
+        border: none;
+        box-shadow: 0 0.125rem 0.25rem rgba(0, 0, 0, 0.075);
+        transition: all 0.3s ease;
+    }
+
+    .card:hover {
+        box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.15);
+        transform: translateY(-2px);
+    }
+
+    .card-header {
+        border-radius: 0.75rem 0.75rem 0 0 !important;
+        border: none;
+        padding: 1rem 1.25rem;
+    }
+
+    .form-control-lg {
+        padding: 0.75rem 1rem;
+        font-size: 1rem;
+        border-radius: 0.5rem;
+        border: 2px solid #e9ecef;
+        transition: all 0.3s ease;
+    }
+
+    .form-control-lg:focus {
+        border-color: #0d6efd;
+        box-shadow: 0 0 0 0.2rem rgba(13, 110, 253, 0.25);
+    }
+
+    .form-label {
+        font-weight: 600;
+        color: #495057;
+        margin-bottom: 0.5rem;
+    }
+
+    .btn {
+        border-radius: 0.5rem;
+        padding: 0.75rem 1.5rem;
+        font-weight: 500;
+        transition: all 0.3s ease;
+    }
+
+    .btn-primary {
+        background: linear-gradient(135deg, #0d6efd 0%, #0b5ed7 100%);
+        border: none;
+        box-shadow: 0 4px 15px rgba(13, 110, 253, 0.3);
+    }
+
+    .btn-primary:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 6px 20px rgba(13, 110, 253, 0.4);
+    }
+
+    .btn-outline-secondary {
+        border: 2px solid #6c757d;
+        color: #6c757d;
+    }
+
+    .btn-outline-secondary:hover {
+        background-color: #6c757d;
+        border-color: #6c757d;
+        transform: translateY(-2px);
+    }
+
+    .select2-container--bootstrap4 .select2-selection {
+        border-radius: 0.5rem;
+        border: 2px solid #e9ecef;
+        min-height: 48px;
+    }
+
+    .select2-container--bootstrap4 .select2-selection:focus {
+        border-color: #0d6efd;
+        box-shadow: 0 0 0 0.2rem rgba(13, 110, 253, 0.25);
+    }
+
+    .alert {
+        border-radius: 0.5rem;
+        border: none;
+    }
+
+    .bg-primary {
+        background: linear-gradient(135deg, #0d6efd 0%, #0b5ed7 100%) !important;
+    }
+
+    .bg-success {
+        background: linear-gradient(135deg, #198754 0%, #157347 100%) !important;
+    }
+
+    .bg-info {
+        background: linear-gradient(135deg, #0dcaf0 0%, #0aa2c0 100%) !important;
+    }
+
+    .bg-light {
+        background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%) !important;
+    }
+
+    @media (max-width: 768px) {
+        .step-circle {
+            width: 40px;
+            height: 40px;
+            font-size: 1rem;
+        }
+
+        .card-body {
+            padding: 1rem;
+        }
+
+        .btn-lg {
+            padding: 0.5rem 1rem;
+            font-size: 1rem;
+        }
+    }
+</style>
+@endpush
+
+@section('scripts')
+<script>
+// Helper function to get period display text
+function getPeriodText(period) {
+    const periodNames = {
+        'Semester 1': 'Semester 1',
+        'Semester 2': 'Semester 2',
+        'Full year': 'Full Year'
+    };
+    return periodNames[period] || period;
+}
+
+$(document).ready(function() {
+    // Initialize Select2 for enhanced dropdowns
+    $('#program_id, #fee_group_id, #fee_period, #generation_type').select2({
+        theme: 'bootstrap-5',
+        width: '100%',
+        placeholder: function() {
+            return $(this).data('placeholder') || 'Select an option';
+        }
+    });
+
+    // Initialize Select2 for student selection
+    $('#student_ids').select2({
+        theme: 'bootstrap-5',
+        width: '100%',
+        placeholder: 'Select students...',
+        allowClear: true
+    });
+
+    // Generation type change handler
+    $('#generation_type').on('change', function() {
+        const generationType = $(this).val();
+
+        if (generationType === 'specific_students') {
+            $('#student-selection').slideDown();
+            $('#student_ids').prop('required', true);
+            loadStudents();
+        } else {
+            $('#student-selection').slideUp();
+            $('#student_ids').prop('required', false);
+            $('#student_ids').val(null).trigger('change');
+        }
+    });
+
+    // Load students based on program selection
+    function loadStudents() {
+        const programId = $('#program_id').val();
+        const feePeriod = $('#fee_period').val();
+
+        if (!programId || !feePeriod) {
+            $('#student_ids').html('<option value="">Please select program and fee period first</option>');
+            return;
+        }
+
+        $.ajax({
+            url: '{{ route("college.fee-invoices.get-students") }}',
+            method: 'GET',
+            data: {
+                program_id: programId,
+                fee_period: feePeriod
+            },
+            beforeSend: function() {
+                $('#student_ids').html('<option value="">Loading students...</option>');
+            },
+            success: function(response) {
+                let options = '<option value="">Select students</option>';
+                response.students.forEach(function(student) {
+                    options += `<option value="${student.id}">${student.name} (${student.student_number})</option>`;
+                });
+                $('#student_ids').html(options);
+            },
+            error: function(xhr) {
+                console.error('Error loading students:', xhr);
+                $('#student_ids').html('<option value="">Error loading students</option>');
+                toastr.error('Failed to load students. Please try again.');
+            }
+        });
+    }
+
+    // Program or fee period change handler
+    $('#program_id, #fee_period').on('change', function() {
+        if ($('#generation_type').val() === 'specific_students') {
+            loadStudents();
+        }
+        updatePreview();
+    });
+
+    // Update invoice preview
+    function updatePreview() {
+        const programId = $('#program_id').val();
+        const feeGroupId = $('#fee_group_id').val();
+        const feePeriod = $('#fee_period').val();
+        const dueDate = $('#due_date').val();
+        const generationType = $('#generation_type').val();
+
+        if (!programId || !feeGroupId || !feePeriod || !dueDate) {
+            $('#invoice-preview').html(`
+                <i class="bx bx-receipt text-muted" style="font-size: 4rem;"></i>
+                <h5 class="text-muted mt-3">Invoice Preview</h5>
+                <p class="text-muted small">Configure your settings above to see the preview</p>
+            `);
+            return;
+        }
+
+        // Show loading state
+        $('#invoice-preview').html(`
+            <div class="spinner-border text-primary" role="status">
+                <span class="visually-hidden">Loading...</span>
+            </div>
+            <h5 class="text-muted mt-3">Generating Preview...</h5>
+        `);
+
+        $.ajax({
+            url: '{{ route("college.fee-invoices.preview") }}',
+            method: 'POST',
+            data: {
+                program_id: programId,
+                fee_group_id: feeGroupId,
+                fee_period: feePeriod,
+                due_date: dueDate,
+                generation_type: generationType,
+                _token: '{{ csrf_token() }}'
+            },
+            success: function(response) {
+                $('#invoice-preview').html(response.html);
+            },
+            error: function(xhr) {
+                console.error('Preview error:', xhr);
+                $('#invoice-preview').html(`
+                    <i class="bx bx-error text-danger" style="font-size: 4rem;"></i>
+                    <h5 class="text-danger mt-3">Preview Error</h5>
+                    <p class="text-muted small">Unable to generate preview. Please check your settings.</p>
+                `);
+            }
+        });
+    }
+
+    // Basic form validation and submission
+    $('#fee-invoice-form').on('submit', function(e) {
+        // Basic validation
+        const programId = $('#program_id').val();
+        const feeGroupId = $('#fee_group_id').val();
+        const feePeriod = $('#fee_period').val();
+        const dueDate = $('#due_date').val();
+        const generationType = $('#generation_type').val();
+
+        if (!programId || !feeGroupId || !feePeriod || !dueDate || !generationType) {
+            e.preventDefault();
+            toastr.error('Please fill in all required fields.');
+            return;
+        }
+
+        if (generationType === 'specific_students' && !$('#student_ids').val()) {
+            e.preventDefault();
+            toastr.error('Please select at least one student.');
+            return;
+        }
+
+        // Show loading state
+        const submitBtn = $('button[type="submit"]');
+        const originalText = submitBtn.html();
+        submitBtn.prop('disabled', true).html('<i class="bx bx-loader-alt bx-spin me-2"></i>Creating Invoices...');
+    });
+
+    // Initialize preview on page load if form has values
+    if ($('#program_id').val() && $('#fee_group_id').val() && $('#fee_period').val() && $('#due_date').val()) {
+        updatePreview();
+    }
+});
+</script>
+@endsection

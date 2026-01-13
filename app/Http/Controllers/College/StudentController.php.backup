@@ -1,0 +1,1568 @@
+<?php
+
+namespace App\Http\Controllers\College;
+
+use App\Http\Controllers\Controller;
+use App\Models\College\Student;
+use App\Models\College\Program;
+use App\Models\College\CollegeGuardian;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\DB;
+use Yajra\DataTables\DataTables;
+use Maatwebsite\Excel\Facades\Excel;
+use Barryvdh\DomPDF\Facade\Pdf;
+
+class CollegeStudentSheetImport implements \Maatwebsite\Excel\Concerns\ToModel, \Maatwebsite\Excel\Concerns\WithStartRow
+{
+    private $program;
+    private $errors = [];
+    private $successCount = 0;
+    private $errorCount = 0;
+
+    public function __construct($program)
+    {
+        $this->program = $program;
+    }
+
+    public function startRow(): int
+    {
+        return 2; // Start from row 2 (skip header row)
+    }
+
+    public function model(array $row)
+    {
+        try {
+            // Skip empty rows
+            if (empty(array_filter($row))) {
+                return null;
+            }
+
+            // Skip header row if detected (check if first column contains header-like text)
+            $firstCell = trim($row[0] ?? '');
+            if (strtolower($firstCell) === 'student number' || strtolower($firstCell) === 'student_number') {
+                return null;
+            }
+
+            // Skip instruction rows
+            if (strtolower($firstCell) === 'instructions:') {
+                return null;
+            }
+
+            // Map Excel columns to database fields
+            $data = [
+                'student_number' => trim($row[0] ?? ''),
+                'first_name' => trim($row[1] ?? ''),
+                'last_name' => trim($row[2] ?? ''),
+                'email' => trim($row[3] ?? ''),
+                'phone' => trim($row[4] ?? ''),
+                'date_of_birth' => $this->parseDate($row[5] ?? ''),
+                'gender' => strtolower(trim($row[6] ?? '')),
+                'nationality' => trim($row[7] ?? ''),
+                'id_number' => trim($row[8] ?? ''),
+                'enrollment_year' => intval($row[9] ?? date('Y')),
+                'admission_date' => $this->parseDate($row[10] ?? ''),
+                'status' => strtolower(trim($row[11] ?? 'active')),
+                'admission_level' => trim($row[12] ?? ''),
+                'permanent_address' => trim($row[13] ?? ''),
+                'current_address' => trim($row[14] ?? ''),
+                'emergency_contact_name' => trim($row[15] ?? ''),
+                'emergency_contact_phone' => trim($row[16] ?? ''),
+                'emergency_contact_relationship' => trim($row[17] ?? ''),
+                'previous_school' => trim($row[18] ?? ''),
+                'qualification' => trim($row[19] ?? ''),
+                'grade_score' => trim($row[20] ?? ''),
+                'completion_year' => intval($row[21] ?? ''),
+                'program_id' => $this->program->id,
+                'company_id' => $this->program->company_id,
+                'branch_id' => $this->program->branch_id,
+            ];
+
+            // Validate required fields
+            if (empty($data['student_number']) || empty($data['first_name']) || empty($data['email'])) {
+                $this->errors[] = "Row " . (count($this->errors) + $this->successCount + 2) . ": Missing required fields (Student Number, First Name, Email)";
+                $this->errorCount++;
+                return null;
+            }
+
+            // Check for duplicates
+            $existingStudent = Student::where(function($query) use ($data) {
+                $query->where('student_number', $data['student_number'])
+                      ->orWhere('email', $data['email']);
+            })
+            ->where('company_id', $data['company_id'])
+            ->when($data['branch_id'], function($query) use ($data) {
+                return $query->where('branch_id', $data['branch_id']);
+            })
+            ->first();
+
+            if ($existingStudent) {
+                $duplicateField = $existingStudent->student_number === $data['student_number'] ? 'Student Number' : 'Email';
+                $this->errors[] = "Row " . (count($this->errors) + $this->successCount + 2) . ": {$duplicateField} already exists";
+                $this->errorCount++;
+                return null;
+            }
+
+            // Validate gender
+            if (!in_array($data['gender'], ['male', 'female', 'other'])) {
+                $data['gender'] = 'other'; // Default to other if invalid
+            }
+
+            // Validate status
+            if (!in_array($data['status'], ['active', 'inactive', 'graduated', 'suspended', 'transferred'])) {
+                $data['status'] = 'active'; // Default to active if invalid
+            }
+
+            // Validate admission level
+            if (!empty($data['admission_level']) && !in_array($data['admission_level'], ['Level1', 'Level2', 'Level3', 'Level4', 'Level5', 'Level6'])) {
+                $data['admission_level'] = null; // Set to null if invalid
+            }
+
+            // Validate emergency contact relationship
+            if (!empty($data['emergency_contact_relationship']) &&
+                !in_array($data['emergency_contact_relationship'], ['parent', 'guardian', 'sibling', 'spouse', 'relative', 'friend', 'other'])) {
+                $data['emergency_contact_relationship'] = 'other'; // Default to other if invalid
+            }
+
+            // Create the student
+            $student = Student::create($data);
+            $this->successCount++;
+
+            return $student;
+
+        } catch (\Exception $e) {
+            $this->errors[] = "Row " . (count($this->errors) + $this->successCount + 2) . ": " . $e->getMessage();
+            $this->errorCount++;
+            return null;
+        }
+    }
+
+    private function parseDate($dateValue)
+    {
+        if (empty($dateValue)) {
+            return null;
+        }
+
+        // If it's already a valid date string
+        if (strtotime($dateValue) !== false) {
+            return date('Y-m-d', strtotime($dateValue));
+        }
+
+        // If it's an Excel serial date (number)
+        if (is_numeric($dateValue)) {
+            // Excel dates start from 1900-01-01 (serial 1)
+            $excelEpoch = strtotime('1900-01-01');
+            $secondsPerDay = 86400;
+            $timestamp = $excelEpoch + (($dateValue - 1) * $secondsPerDay);
+            return date('Y-m-d', $timestamp);
+        }
+
+        return null;
+    }
+
+    public function getSuccessCount()
+    {
+        return $this->successCount;
+    }
+
+    public function getErrorCount()
+    {
+        return $this->errorCount;
+    }
+
+    public function getErrors()
+    {
+        return $this->errors;
+    }
+}
+
+class StudentController extends Controller
+
+            // Define expected column order (matching the template)
+            $expectedColumns = [
+                'student_number',      // Column A
+                'first_name',          // Column B
+                'last_name',           // Column C
+                'email',               // Column D
+                'phone',               // Column E
+                'date_of_birth',       // Column F
+                'gender',              // Column G
+                'nationality',         // Column H
+                'id_number',           // Column I
+                'enrollment_year',     // Column J
+                'admission_date',      // Column K
+                'status',              // Column L
+                'admission_level',     // Column M
+                'permanent_address',   // Column N
+                'current_address',     // Column O
+                'emergency_contact_name',    // Column P
+                'emergency_contact_phone',   // Column Q
+                'emergency_contact_relationship', // Column R
+                'previous_school',     // Column S
+                'qualification',       // Column T
+                'grade_score',         // Column U
+                'completion_year',     // Column V
+            ];
+
+            // Map the row data to expected columns
+            $normalizedRow = [];
+            foreach ($expectedColumns as $index => $columnName) {
+                $normalizedRow[$columnName] = $row[$index] ?? null;
+            }
+
+            // Validate required fields
+            $studentNumber = $normalizedRow['student_number'] ?? '';
+            if (empty(trim($studentNumber))) {
+                $this->errors[] = "Row " . ($this->successCount + $this->errorCount + 1) . ": Missing required field (Student Number) in column A";
+                $this->errorCount++;
+                return null;
+            }
+
+            $firstName = $normalizedRow['first_name'] ?? '';
+            if (empty(trim($firstName))) {
+                $this->errors[] = "Row " . ($this->successCount + $this->errorCount + 1) . ": Missing required field (First Name) in column B";
+                $this->errorCount++;
+                return null;
+            }
+
+            $email = $normalizedRow['email'] ?? '';
+            if (empty(trim($email))) {
+                $this->errors[] = "Row " . ($this->successCount + $this->errorCount + 1) . ": Missing required field (Email) in column D";
+                $this->errorCount++;
+                return null;
+            }
+
+            // Check for duplicate student number
+            if (Student::where('student_number', $studentNumber)->exists()) {
+                $this->errors[] = "Row " . ($this->successCount + $this->errorCount + 1) . ": Student number '{$studentNumber}' already exists";
+                $this->errorCount++;
+                return null;
+            }
+
+            // Check for duplicate email
+            if (Student::where('email', $email)->exists()) {
+                $this->errors[] = "Row " . ($this->successCount + $this->errorCount + 1) . ": Email '{$email}' already exists";
+                $this->errorCount++;
+                return null;
+            }
+
+            // Validate and parse dates
+            $dateOfBirth = null;
+            $admissionDate = null;
+
+            if (!empty($normalizedRow['date_of_birth'])) {
+                try {
+                    $dateOfBirth = $this->parseDate(trim($normalizedRow['date_of_birth']));
+                } catch (\Exception $e) {
+                    $this->errors[] = "Row " . ($this->successCount + $this->errorCount + 1) . ": Invalid date format for Date of Birth: '{$normalizedRow['date_of_birth']}'. Use YYYY-MM-DD format or Excel date format.";
+                    $this->errorCount++;
+                    return null;
+                }
+            }
+
+            if (!empty($normalizedRow['admission_date'])) {
+                try {
+                    $admissionDate = $this->parseDate(trim($normalizedRow['admission_date']));
+                } catch (\Exception $e) {
+                    $this->errors[] = "Row " . ($this->successCount + $this->errorCount + 1) . ": Invalid date format for Admission Date: '{$normalizedRow['admission_date']}'. Use YYYY-MM-DD format or Excel date format.";
+                    $this->errorCount++;
+                    return null;
+                }
+            } else {
+                // Default to today if admission date is not provided
+                $admissionDate = now()->format('Y-m-d');
+            }
+
+            // Validate gender
+            $gender = $normalizedRow['gender'] ?? '';
+            if (!empty($gender) && !in_array(strtolower($gender), ['male', 'female', 'other'])) {
+                $this->errors[] = "Row " . ($this->successCount + $this->errorCount + 1) . ": Invalid gender '{$gender}'. Must be 'male', 'female', or 'other'";
+                $this->errorCount++;
+                return null;
+            }
+
+            // Validate status
+            $status = $normalizedRow['status'] ?? 'active';
+            $validStatuses = ['active', 'inactive', 'graduated', 'suspended', 'transferred'];
+            if (!in_array($status, $validStatuses)) {
+                $this->errors[] = "Row " . ($this->successCount + $this->errorCount + 1) . ": Invalid status '{$status}'. Must be one of: " . implode(', ', $validStatuses);
+                $this->errorCount++;
+                return null;
+            }
+
+            // Validate admission level
+            $admissionLevel = $normalizedRow['admission_level'] ?? '';
+            $validLevels = ['Level1', 'Level2', 'Level3', 'Level4', 'Level5', 'Level6'];
+            if (!empty($admissionLevel) && !in_array($admissionLevel, $validLevels)) {
+                $this->errors[] = "Row " . ($this->successCount + $this->errorCount + 1) . ": Invalid admission level '{$admissionLevel}'. Must be one of: " . implode(', ', $validLevels);
+                $this->errorCount++;
+                return null;
+            }
+
+            // Validate enrollment year
+            $enrollmentYear = $normalizedRow['enrollment_year'] ?? '';
+            if (!empty($enrollmentYear)) {
+                $enrollmentYear = intval($enrollmentYear);
+                if ($enrollmentYear < 2000 || $enrollmentYear > date('Y') + 1) {
+                    $this->errors[] = "Row " . ($this->successCount + $this->errorCount + 1) . ": Invalid enrollment year '{$enrollmentYear}'. Must be between 2000 and " . (date('Y') + 1);
+                    $this->errorCount++;
+                    return null;
+                }
+            } else {
+                // Default to current year
+                $enrollmentYear = date('Y');
+            }
+
+            // Prepare student data
+            $studentData = [
+                'student_number' => trim($studentNumber),
+                'first_name' => trim($firstName),
+                'last_name' => !empty($normalizedRow['last_name']) ? trim($normalizedRow['last_name']) : null,
+                'email' => trim($email),
+                'phone' => !empty($normalizedRow['phone']) ? trim($normalizedRow['phone']) : null,
+                'date_of_birth' => $dateOfBirth,
+                'gender' => !empty($gender) ? strtolower($gender) : null,
+                'nationality' => !empty($normalizedRow['nationality']) ? trim($normalizedRow['nationality']) : null,
+                'id_number' => !empty($normalizedRow['id_number']) ? trim($normalizedRow['id_number']) : null,
+                'program_id' => $this->program->id,
+                'enrollment_year' => $enrollmentYear,
+                'graduation_year' => !empty($normalizedRow['graduation_year']) ? intval($normalizedRow['graduation_year']) : null,
+                'admission_date' => $admissionDate,
+                'status' => $status,
+                'admission_level' => !empty($admissionLevel) ? $admissionLevel : null,
+                'permanent_address' => !empty($normalizedRow['permanent_address']) ? trim($normalizedRow['permanent_address']) : null,
+                'current_address' => !empty($normalizedRow['current_address']) ? trim($normalizedRow['current_address']) : null,
+                'emergency_contact_name' => !empty($normalizedRow['emergency_contact_name']) ? trim($normalizedRow['emergency_contact_name']) : null,
+                'emergency_contact_phone' => !empty($normalizedRow['emergency_contact_phone']) ? trim($normalizedRow['emergency_contact_phone']) : null,
+                'emergency_contact_relationship' => !empty($normalizedRow['emergency_contact_relationship']) ? trim($normalizedRow['emergency_contact_relationship']) : null,
+                'previous_school' => !empty($normalizedRow['previous_school']) ? trim($normalizedRow['previous_school']) : null,
+                'qualification' => !empty($normalizedRow['qualification']) ? trim($normalizedRow['qualification']) : null,
+                'grade_score' => !empty($normalizedRow['grade_score']) ? trim($normalizedRow['grade_score']) : null,
+                'completion_year' => !empty($normalizedRow['completion_year']) ? intval($normalizedRow['completion_year']) : null,
+                'company_id' => Auth::user()->company_id,
+                'branch_id' => session('branch_id')
+            ];
+
+            // Create student
+            $student = new Student($studentData);
+            $student->save();
+
+            $this->successCount++;
+            return $student;
+
+        } catch (\Exception $e) {
+            $this->errors[] = "Row " . ($this->successCount + $this->errorCount + 1) . ": " . $e->getMessage();
+            $this->errorCount++;
+            return null;
+        }
+    }
+
+    private function parseDate(string $dateString): string
+    {
+        $dateString = trim($dateString);
+
+        // Check if it's an Excel serial date (typically 5-digit number)
+        if (preg_match('/^\d{5,6}$/', $dateString)) {
+            $serialDate = (int) $dateString;
+
+            // Excel dates start from January 1, 1900 (serial date 1)
+            // But Excel has a bug where it considers 1900-02-29 as a valid date (it wasn't a leap year)
+            // So we need to adjust for that
+            if ($serialDate > 60) {
+                $serialDate--; // Adjust for the non-existent 1900-02-29
+            }
+
+            // Convert to Unix timestamp: Excel epoch is 1900-01-01
+            $excelEpoch = strtotime('1900-01-01');
+            $timestamp = $excelEpoch + ($serialDate - 1) * 86400; // 86400 seconds per day
+
+            return date('Y-m-d', $timestamp);
+        }
+
+        // Try to parse as regular date format
+        try {
+            return \Carbon\Carbon::parse($dateString)->format('Y-m-d');
+        } catch (\Exception $e) {
+            throw new \Exception("Unable to parse date: {$dateString}");
+        }
+    }
+
+    public function getErrors()
+    {
+        return $this->errors;
+    }
+
+    public function getSuccessCount()
+    {
+        return $this->successCount;
+    }
+
+    public function getErrorCount()
+    {
+        return $this->errorCount;
+    }
+}
+
+class StudentController extends Controller
+{
+    public function index()
+    {
+        // Get data for filters
+        $programs = Program::active()
+            ->forCompany(Auth::user()->company_id)
+            ->when(session('branch_id'), function ($query) {
+                return $query->forBranch(session('branch_id'));
+            })
+            ->get();
+
+        $departments = \App\Models\College\Department::active()
+            ->forCompany(Auth::user()->company_id)
+            ->when(session('branch_id'), function ($query) {
+                return $query->forBranch(session('branch_id'));
+            })
+            ->get();
+
+        $academicYears = \App\Models\School\AcademicYear::forCompany(Auth::user()->company_id)
+            ->orderBy('start_date', 'desc')
+            ->get();
+
+        $statuses = ['active', 'inactive', 'graduated', 'suspended', 'transferred'];
+        $levels = ['Level1', 'Level2', 'Level3', 'Level4', 'Level5', 'Level6'];
+
+        return view('college.students.index', compact('programs', 'departments', 'academicYears', 'statuses', 'levels'));
+    }
+
+    public function create()
+    {
+        $programs = Program::active()
+            ->forCompany(Auth::user()->company_id)
+            ->when(session('branch_id'), function ($query) {
+                return $query->forBranch(session('branch_id'));
+            })
+            ->get();
+
+        $academicYears = \App\Models\School\AcademicYear::forCompany(Auth::user()->company_id)
+            ->orderBy('start_date', 'desc')
+            ->get();
+
+        $activeAcademicYear = \App\Models\School\AcademicYear::active()
+            ->forCompany(Auth::user()->company_id)
+            ->first();
+
+        $defaultEnrollmentYear = null;
+        if ($activeAcademicYear) {
+            $defaultEnrollmentYear = intval(explode('-', $activeAcademicYear->year_name)[0]);
+        }
+
+        return view('college.students.create', compact('programs', 'academicYears', 'activeAcademicYear', 'defaultEnrollmentYear'));
+    }
+
+    public function store(Request $request)
+    {
+        $request->validate([
+            'student_number' => 'required|string|max:50|unique:college_students,student_number',
+            'first_name' => 'required|string|max:255',
+            'last_name' => 'required|string|max:255',
+            'email' => 'required|email|unique:college_students,email',
+            'phone' => 'nullable|string|max:20',
+            'date_of_birth' => 'nullable|date|before:today',
+            'gender' => 'required|in:male,female,other',
+            'nationality' => 'nullable|string|max:100',
+            'id_number' => 'nullable|string|max:50',
+            'program_id' => 'required|exists:college_programs,id',
+            'enrollment_year' => 'required|integer|min:2000|max:' . (date('Y') + 1),
+            'graduation_year' => 'nullable|integer|min:2000|max:' . (date('Y') + 10),
+            'admission_date' => 'nullable|date',
+            'status' => 'required|in:active,inactive,graduated,suspended,transferred',
+            'admission_level' => 'nullable|in:Level1,Level2,Level3,Level4,Level5,Level6',
+            'permanent_address' => 'required|string|max:500',
+            'current_address' => 'nullable|string|max:500',
+            'emergency_contact_name' => 'nullable|string|max:255',
+            'emergency_contact_phone' => 'nullable|string|max:20',
+            'emergency_contact_relationship' => 'nullable|in:parent,guardian,sibling,spouse,relative,friend,other',
+            'previous_school' => 'nullable|string|max:255',
+            'qualification' => 'nullable|string|max:255',
+            'grade_score' => 'nullable|string|max:100',
+            'completion_year' => 'nullable|integer|min:1950|max:' . date('Y'),
+            'student_photo' => 'nullable|image|mimes:jpeg,png,jpg|max:2048'
+        ]);
+
+        try {
+            DB::beginTransaction();
+
+            $photoPath = null;
+            if ($request->hasFile('student_photo')) {
+                $photoPath = $request->file('student_photo')->store('students/photos', 'public');
+            }
+
+            Student::create([
+                'student_number' => $request->student_number,
+                'first_name' => $request->first_name,
+                'last_name' => $request->last_name,
+                'email' => $request->email,
+                'phone' => $request->phone,
+                'date_of_birth' => $request->date_of_birth,
+                'gender' => $request->gender,
+                'nationality' => $request->nationality,
+                'id_number' => $request->id_number,
+                'program_id' => $request->program_id,
+                'enrollment_year' => $request->enrollment_year,
+                'graduation_year' => $request->graduation_year,
+                'admission_date' => $request->admission_date,
+                'status' => $request->status,
+                'admission_level' => $request->admission_level,
+                'permanent_address' => $request->permanent_address,
+                'current_address' => $request->current_address,
+                'emergency_contact_name' => $request->emergency_contact_name,
+                'emergency_contact_phone' => $request->emergency_contact_phone,
+                'emergency_contact_relationship' => $request->emergency_contact_relationship,
+                'previous_school' => $request->previous_school,
+                'qualification' => $request->qualification,
+                'grade_score' => $request->grade_score,
+                'completion_year' => $request->completion_year,
+                'student_photo' => $photoPath,
+                'company_id' => Auth::user()->company_id,
+                'branch_id' => session('branch_id')
+            ]);
+
+            DB::commit();
+
+            return redirect()->route('college.students.index')
+                ->with('success', 'Student created successfully.');
+        } catch (\Exception $e) {
+            DB::rollBack();
+            return redirect()->back()
+                ->withInput()
+                ->with('error', 'Failed to create student: ' . $e->getMessage());
+        }
+    }
+
+    public function show($id)
+    {
+        $student = Student::with(['program', 'program.department', 'parents'])->findOrFail($id);
+
+        // Check if student belongs to user's branch
+        if (session('branch_id') && $student->branch_id !== session('branch_id')) {
+            abort(403, 'Unauthorized access to student record.');
+        }
+
+        // Get enrollment year name
+        $enrollmentYearName = null;
+        if ($student->enrollment_year) {
+            $academicYear = \App\Models\School\AcademicYear::forCompany(Auth::user()->company_id)
+                ->when(session('branch_id'), function ($query) {
+                    return $query->forBranch(session('branch_id'));
+                })
+                ->where('year_name', 'LIKE', $student->enrollment_year . '-%')
+                ->first();
+            $enrollmentYearName = $academicYear ? $academicYear->year_name : $student->enrollment_year;
+        }
+
+        return view('college.students.show', compact('student', 'enrollmentYearName'));
+    }
+
+    public function edit($id)
+    {
+        $student = Student::findOrFail($id);
+
+        // Check if student belongs to user's branch
+        if (session('branch_id') && $student->branch_id !== session('branch_id')) {
+            abort(403, 'Unauthorized access to student record.');
+        }
+
+        $programs = Program::active()
+            ->forCompany(Auth::user()->company_id)
+            ->when(session('branch_id'), function ($query) {
+                return $query->forBranch(session('branch_id'));
+            })
+            ->get();
+
+        $activeAcademicYear = \App\Models\School\AcademicYear::active()
+            ->forCompany(Auth::user()->company_id)
+            ->first();
+
+        return view('college.students.edit', compact('student', 'programs', 'activeAcademicYear'));
+    }
+
+    public function update(Request $request, $id)
+    {
+        $student = Student::findOrFail($id);
+
+        // Check if student belongs to user's branch
+        if (session('branch_id') && $student->branch_id !== session('branch_id')) {
+            abort(403, 'Unauthorized access to student record.');
+        }
+
+        $request->validate([
+            'student_number' => 'required|string|max:50|unique:college_students,student_number,' . $id,
+            'first_name' => 'required|string|max:255',
+            'last_name' => 'required|string|max:255',
+            'email' => 'required|email|unique:college_students,email,' . $id,
+            'phone' => 'nullable|string|max:20',
+            'date_of_birth' => 'nullable|date|before:today',
+            'gender' => 'required|in:male,female,other',
+            'nationality' => 'nullable|string|max:100',
+            'id_number' => 'nullable|string|max:50',
+            'program_id' => 'required|exists:college_programs,id',
+            'enrollment_year' => 'required|integer|min:2000|max:' . (date('Y') + 1),
+            'graduation_year' => 'nullable|integer|min:2000|max:' . (date('Y') + 10),
+            'admission_date' => 'nullable|date',
+            'status' => 'required|in:active,inactive,graduated,suspended,transferred',
+            'admission_level' => 'nullable|in:Level1,Level2,Level3,Level4,Level5,Level6',
+            'permanent_address' => 'required|string|max:500',
+            'current_address' => 'nullable|string|max:500',
+            'emergency_contact_name' => 'nullable|string|max:255',
+            'emergency_contact_phone' => 'nullable|string|max:20',
+            'emergency_contact_relationship' => 'nullable|in:parent,guardian,sibling,spouse,relative,friend,other',
+            'previous_school' => 'nullable|string|max:255',
+            'qualification' => 'nullable|string|max:255',
+            'grade_score' => 'nullable|string|max:100',
+            'completion_year' => 'nullable|integer|min:1950|max:' . date('Y'),
+            'student_photo' => 'nullable|image|mimes:jpeg,png,jpg|max:2048'
+        ]);
+
+        try {
+            DB::beginTransaction();
+
+            $photoPath = $student->student_photo; // Keep existing photo by default
+            if ($request->hasFile('student_photo')) {
+                // Delete old photo if exists
+                if ($student->student_photo && \Storage::disk('public')->exists($student->student_photo)) {
+                    \Storage::disk('public')->delete($student->student_photo);
+                }
+                $photoPath = $request->file('student_photo')->store('students/photos', 'public');
+            }
+
+            $student->update([
+                'student_number' => $request->student_number,
+                'first_name' => $request->first_name,
+                'last_name' => $request->last_name,
+                'email' => $request->email,
+                'phone' => $request->phone,
+                'date_of_birth' => $request->date_of_birth,
+                'gender' => $request->gender,
+                'nationality' => $request->nationality,
+                'id_number' => $request->id_number,
+                'program_id' => $request->program_id,
+                'enrollment_year' => $request->enrollment_year,
+                'graduation_year' => $request->graduation_year,
+                'admission_date' => $request->admission_date,
+                'status' => $request->status,
+                'admission_level' => $request->admission_level,
+                'permanent_address' => $request->permanent_address,
+                'current_address' => $request->current_address,
+                'emergency_contact_name' => $request->emergency_contact_name,
+                'emergency_contact_phone' => $request->emergency_contact_phone,
+                'emergency_contact_relationship' => $request->emergency_contact_relationship,
+                'previous_school' => $request->previous_school,
+                'qualification' => $request->qualification,
+                'grade_score' => $request->grade_score,
+                'completion_year' => $request->completion_year,
+                'student_photo' => $photoPath
+            ]);
+
+            DB::commit();
+
+            return redirect()->route('college.students.index')
+                ->with('success', 'Student updated successfully.');
+        } catch (\Exception $e) {
+            DB::rollBack();
+            return redirect()->back()
+                ->withInput()
+                ->with('error', 'Failed to update student: ' . $e->getMessage());
+        }
+    }
+
+    public function destroy($id)
+    {
+        $student = Student::findOrFail($id);
+
+        // Check if student belongs to user's branch
+        if (session('branch_id') && $student->branch_id !== session('branch_id')) {
+            abort(403, 'Unauthorized access to student record.');
+        }
+
+        try {
+            $student->delete();
+            return redirect()->route('college.students.index')
+                ->with('success', 'Student deleted successfully.');
+        } catch (\Exception $e) {
+            return redirect()->back()
+                ->with('error', 'Failed to delete student: ' . $e->getMessage());
+        }
+    }
+
+    public function assignParents($id)
+    {
+        $student = Student::with(['program', 'program.department', 'parents'])->findOrFail($id);
+
+        // Check if student belongs to user's branch
+        if (session('branch_id') && $student->branch_id !== session('branch_id')) {
+            abort(403, 'Unauthorized access to student record.');
+        }
+
+        return view('college.students.assign-parents', compact('student'));
+    }
+
+    public function storeAssignedParents(Request $request, $id)
+    {
+        $student = Student::findOrFail($id);
+
+        // Check if student belongs to user's branch
+        if (session('branch_id') && $student->branch_id !== session('branch_id')) {
+            abort(403, 'Unauthorized access to student record.');
+        }
+
+        $request->validate([
+            'parents' => 'required|array|min:1',
+            'parents.*.name' => 'required|string|max:255',
+            'parents.*.relationship' => 'required|string|max:100',
+            'parents.*.phone' => 'required|string|max:20',
+            'parents.*.alt_phone' => 'nullable|string|max:20',
+            'parents.*.email' => 'nullable|email',
+            'parents.*.occupation' => 'nullable|string|max:255',
+            'parents.*.address' => 'required|string|max:500',
+        ]);
+
+        try {
+            DB::beginTransaction();
+
+            // Create parents/guardians and attach to student
+            foreach ($request->parents as $parentData) {
+                // Check if parent with this email already exists
+                if (!empty($parentData['email'])) {
+                    $guardian = CollegeGuardian::where('email', $parentData['email'])
+                        ->where('company_id', Auth::user()->company_id)
+                        ->when(session('branch_id'), function ($query) {
+                            return $query->where('branch_id', session('branch_id'));
+                        })
+                        ->first();
+                } else {
+                    $guardian = null;
+                }
+
+                // If parent doesn't exist, create new one
+                if (!$guardian) {
+                    $guardian = CollegeGuardian::create([
+                        'name' => $parentData['name'],
+                        'phone' => $parentData['phone'],
+                        'alt_phone' => $parentData['alt_phone'] ?? null,
+                        'email' => $parentData['email'] ?? null,
+                        'occupation' => $parentData['occupation'] ?? null,
+                        'address' => $parentData['address'],
+                        'company_id' => Auth::user()->company_id,
+                        'branch_id' => session('branch_id')
+                    ]);
+                } else {
+                    // Update existing parent's information if needed
+                    $guardian->update([
+                        'name' => $parentData['name'],
+                        'phone' => $parentData['phone'],
+                        'alt_phone' => $parentData['alt_phone'] ?? null,
+                        'occupation' => $parentData['occupation'] ?? null,
+                        'address' => $parentData['address'],
+                    ]);
+                }
+
+                // Check if this parent is already attached to the student
+                if (!$student->parents()->where('parent_id', $guardian->id)->exists()) {
+                    // Create the relationship
+                    $student->parents()->attach($guardian->id, ['relationship' => $parentData['relationship']]);
+                }
+            }
+
+            DB::commit();
+
+            return redirect()->route('college.students.show', $id)
+                ->with('success', 'Parents assigned to student successfully.');
+        } catch (\Exception $e) {
+            DB::rollBack();
+            return redirect()->back()
+                ->withInput()
+                ->with('error', 'Failed to assign parents: ' . $e->getMessage());
+        }
+    }
+
+    public function assignExistingParents(Request $request, $id)
+    {
+        try {
+            $student = Student::findOrFail($id);
+
+            // Check if student belongs to user's branch
+            if (session('branch_id') && $student->branch_id !== session('branch_id')) {
+                abort(403, 'Unauthorized access to student record.');
+            }
+
+            $request->validate([
+                'parents' => 'required|array|min:1',
+                'parents.*.id' => 'required|exists:college_guardians,id',
+                'parents.*.relationship' => 'required|string|max:100',
+            ]);
+
+            $assignedCount = 0;
+            $alreadyAssignedCount = 0;
+
+            foreach ($request->parents as $parentData) {
+                $guardian = CollegeGuardian::findOrFail($parentData['id']);
+
+                // Check if this parent is already attached to the student
+                if (!$student->parents()->where('parent_id', $guardian->id)->exists()) {
+                    // Create the relationship
+                    $student->parents()->attach($guardian->id, ['relationship' => $parentData['relationship']]);
+                    $assignedCount++;
+                } else {
+                    $alreadyAssignedCount++;
+                }
+            }
+
+            $message = '';
+            if ($assignedCount > 0) {
+                $message .= "Successfully assigned {$assignedCount} parent(s) to the student.";
+            }
+            if ($alreadyAssignedCount > 0) {
+                if ($message) $message .= ' ';
+                $message .= "{$alreadyAssignedCount} parent(s) were already assigned.";
+            }
+
+            return response()->json([
+                'success' => true,
+                'message' => $message,
+                'assigned_count' => $assignedCount,
+                'already_assigned_count' => $alreadyAssignedCount
+            ]);
+
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Validation failed: ' . implode(', ', $e->errors()['parents'] ?? ['Invalid parent data']),
+                'errors' => $e->errors()
+            ], 422);
+        } catch (\Exception $e) {
+            \Log::error('Parent assignment error: ' . $e->getMessage(), [
+                'student_id' => $id,
+                'request_data' => $request->all(),
+                'user_id' => auth()->id()
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'An error occurred while assigning parents. Please try again.'
+            ], 500);
+        }
+    }
+
+    public function removeParent($studentId, $parentId)
+    {
+        $student = Student::findOrFail($studentId);
+
+        // Check if student belongs to user's branch
+        if (session('branch_id') && $student->branch_id !== session('branch_id')) {
+            abort(403, 'Unauthorized access to student record.');
+        }
+
+        $student->parents()->detach($parentId);
+
+        return redirect()->back()
+            ->with('success', 'Parent removed from student successfully.');
+    }
+
+    public function searchParents(Request $request, $studentId)
+    {
+        $student = Student::find($studentId);
+
+        if (!$student) {
+            return response()->json(['parents' => []]);
+        }
+
+        // Check if student belongs to user's branch
+        if (session('branch_id') && $student->branch_id !== session('branch_id')) {
+            return response()->json(['parents' => []]);
+        }
+
+        $query = $request->get('q', '');
+
+        if (empty($query)) {
+            return response()->json(['parents' => []]);
+        }
+
+        // Get IDs of parents already assigned to this student
+        $assignedParentIds = $student->parents()->pluck('parent_id')->toArray();
+
+        $parents = CollegeGuardian::where(function($q) use ($query) {
+            $q->where('name', 'LIKE', '%' . $query . '%')
+              ->orWhere('phone', 'LIKE', '%' . $query . '%')
+              ->orWhere('alt_phone', 'LIKE', '%' . $query . '%')
+              ->orWhere('email', 'LIKE', '%' . $query . '%');
+        })
+        ->where('company_id', Auth::user()->company_id)
+        ->when(session('branch_id'), function ($query) {
+            return $query->where('branch_id', session('branch_id'));
+        })
+        ->whereNotIn('id', $assignedParentIds) // Exclude already assigned parents
+        ->select('id', 'name', 'phone', 'alt_phone', 'email', 'address', 'occupation')
+        ->orderBy('name')
+        ->limit(20)
+        ->get();
+
+        return response()->json(['parents' => $parents]);
+    }
+
+    public function data(Request $request)
+    {
+        $query = Student::with(['program', 'program.department']);
+
+        // Only filter by company if user is authenticated
+        if (Auth::check()) {
+            $query->forCompany(Auth::user()->company_id);
+        }
+
+        // Only filter by branch if branch_id is set in session
+        if (session('branch_id')) {
+            $query->forBranch(session('branch_id'));
+        }
+
+        // Apply filters
+        if ($request->has('program_id') && !empty($request->program_id)) {
+            $query->where('program_id', $request->program_id);
+        }
+
+        if ($request->has('department_id') && !empty($request->department_id)) {
+            $query->whereHas('program', function($q) use ($request) {
+                $q->where('department_id', $request->department_id);
+            });
+        }
+
+        if ($request->has('academic_year_id') && !empty($request->academic_year_id)) {
+            $academicYear = \App\Models\School\AcademicYear::find($request->academic_year_id);
+            if ($academicYear) {
+                $query->where('enrollment_year', intval(explode('-', $academicYear->year_name)[0]));
+            }
+        }
+
+        if ($request->has('status') && !empty($request->status)) {
+            $query->where('status', $request->status);
+        }
+
+        if ($request->has('admission_level') && !empty($request->admission_level)) {
+            $query->where('admission_level', $request->admission_level);
+        }
+
+        $students = $query->select(['id', 'student_number', 'first_name', 'last_name', 'email', 'phone', 'gender', 'program_id', 'enrollment_year', 'status', 'created_at']);
+
+        return DataTables::of($students)
+            ->addColumn('full_name', function ($student) {
+                return $student->first_name . ' ' . $student->last_name;
+            })
+            ->addColumn('program', function ($student) {
+                return $student->program ? $student->program->name : 'Not Assigned';
+            })
+            ->addColumn('department', function ($student) {
+                return $student->program && $student->program->department ? $student->program->department->name : 'N/A';
+            })
+            ->addColumn('enrollment_year', function ($student) {
+                // Find the corresponding academic year name based on the enrollment_year integer
+                $academicYear = \App\Models\School\AcademicYear::forCompany(Auth::user()->company_id)
+                    ->when(session('branch_id'), function ($query) {
+                        return $query->forBranch(session('branch_id'));
+                    })
+                    ->where('year_name', 'LIKE', $student->enrollment_year . '-%')
+                    ->first();
+
+                return $academicYear ? $academicYear->year_name : $student->enrollment_year;
+            })
+            ->addColumn('status_badge', function ($student) {
+                $badges = [
+                    'active' => '<span class="badge bg-success">Active</span>',
+                    'inactive' => '<span class="badge bg-secondary">Inactive</span>',
+                    'graduated' => '<span class="badge bg-info">Graduated</span>',
+                    'suspended' => '<span class="badge bg-warning">Suspended</span>',
+                    'transferred' => '<span class="badge bg-primary">Transferred</span>'
+                ];
+                return $badges[$student->status] ?? '<span class="badge bg-secondary">Unknown</span>';
+            })
+            ->addColumn('actions', function ($student) {
+                $id = $student->id;
+                $name = addslashes($student->first_name . ' ' . $student->last_name);
+                return '<div class="btn-group" role="group">
+                    <a href="' . route('college.students.show', $id) . '" class="btn btn-sm btn-outline-info" title="View Details">
+                        <i class="bx bx-show"></i>
+                    </a>
+                    <a href="' . route('college.students.edit', $id) . '" class="btn btn-sm btn-outline-warning" title="Edit">
+                        <i class="bx bx-edit"></i>
+                    </a>
+                    <a href="' . route('college.students.assign-parents', $id) . '" class="btn btn-sm btn-outline-success" title="Assign Parents">
+                        <i class="bx bx-user-plus"></i>
+                    </a>
+                    <button type="button" class="btn btn-sm btn-outline-danger" title="Delete"
+                            onclick="confirmDelete(' . $id . ', \'' . $name . '\')">
+                        <i class="bx bx-trash"></i>
+                    </button>
+                </div>';
+            })
+            ->rawColumns(['status_badge', 'actions'])
+            ->make(true);
+    }
+
+    /**
+     * Show the import form
+     */
+    public function import()
+    {
+        $programs = Program::active()
+            ->forCompany(Auth::user()->company_id)
+            ->when(session('branch_id'), function ($query) {
+                return $query->forBranch(session('branch_id'));
+            })
+            ->get();
+
+        return view('college.students.import', compact('programs'));
+    }
+
+    /**
+     * Process the Excel import
+     */
+    public function processImport(Request $request)
+    {
+        $request->validate([
+            'program_id' => 'required|exists:college_programs,id',
+            'excel_file' => 'required|file|mimes:xlsx,xls|max:10240', // 10MB max
+        ]);
+
+        // Get the selected program
+        $program = Program::findOrFail($request->program_id);
+
+        // Check if program belongs to user's company/branch
+        if ($program->company_id !== Auth::user()->company_id ||
+            (session('branch_id') && $program->branch_id !== session('branch_id'))) {
+            return redirect()->back()->withErrors(['program_id' => 'Unauthorized access to selected program.']);
+        }
+
+        try {
+            $file = $request->file('excel_file');
+
+            // Debug: Log file information
+            \Log::info('Starting college student import', [
+                'file_name' => $file->getClientOriginalName(),
+                'file_size' => $file->getSize(),
+                'file_mime' => $file->getMimeType(),
+                'program_id' => $request->program_id,
+                'program_name' => $program->name
+            ]);
+
+            // Import the data using the CollegeStudentSheetImport class
+            $import = new CollegeStudentSheetImport($program);
+            Excel::import($import, $file);
+
+            $successCount = $import->getSuccessCount();
+            $errorCount = $import->getErrorCount();
+            $errors = $import->getErrors();
+
+            // Debug logging
+            \Log::info('College student import completed', [
+                'success_count' => $successCount,
+                'error_count' => $errorCount,
+                'errors' => $errors
+            ]);
+
+            if ($successCount > 0) {
+                $message = "Successfully imported {$successCount} student(s) into {$program->name}.";
+                if ($errorCount > 0) {
+                    $message .= " {$errorCount} row(s) had errors and were skipped.";
+                }
+                return redirect()->route('college.students.index')->with('success', $message);
+            } else {
+                $errorMessage = 'No students were imported. Please check your file format and data.';
+                if (!empty($errors)) {
+                    $errorMessage .= ' Errors: ' . implode('; ', array_slice($errors, 0, 5)); // Show first 5 errors
+                    if (count($errors) > 5) {
+                        $errorMessage .= '... (' . (count($errors) - 5) . ' more errors)';
+                    }
+                }
+                return redirect()->back()->withErrors(['excel_file' => $errorMessage]);
+            }
+
+        } catch (\Exception $e) {
+            \Log::error('College student import error: ' . $e->getMessage());
+            return redirect()->back()->withErrors(['excel_file' => 'An error occurred during import: ' . $e->getMessage()]);
+        }
+    }
+
+    /**
+     * Download import template
+     */
+    public function downloadTemplate(Request $request)
+    {
+        $programId = $request->get('program_id');
+
+        // Validate that program exists and belongs to user
+        $program = null;
+        if ($programId) {
+            $program = Program::where('id', $programId)
+                ->where('company_id', Auth::user()->company_id)
+                ->when(session('branch_id'), function ($query) {
+                    return $query->where('branch_id', session('branch_id'));
+                })
+                ->first();
+
+            if (!$program) {
+                return redirect()->back()->withErrors(['template' => 'Selected program not found or access denied.']);
+            }
+        }
+
+        return Excel::download(new class($program) implements \Maatwebsite\Excel\Concerns\FromArray, \Maatwebsite\Excel\Concerns\WithHeadings, \Maatwebsite\Excel\Concerns\WithEvents, \Maatwebsite\Excel\Concerns\ShouldAutoSize {
+            private $program;
+
+            public function __construct($program)
+            {
+                $this->program = $program;
+            }
+
+            public function array(): array
+            {
+                $programName = $this->program ? $this->program->name : 'Computer Science';
+
+                return [
+                    [
+                        'student_number' => 'CS001',
+                        'first_name' => 'John',
+                        'last_name' => 'Doe',
+                        'email' => 'john.doe@example.com',
+                        'phone' => '+254712345678',
+                        'date_of_birth' => '2000-01-15',
+                        'gender' => 'male',
+                        'nationality' => 'Kenyan',
+                        'id_number' => '12345678',
+                        'enrollment_year' => date('Y'),
+                        'admission_date' => date('Y-m-d'),
+                        'status' => 'active',
+                        'admission_level' => 'Level1',
+                        'permanent_address' => '123 Main Street, Nairobi',
+                        'current_address' => '456 Campus Road, Nairobi',
+                        'emergency_contact_name' => 'Jane Doe',
+                        'emergency_contact_phone' => '+254798765432',
+                        'emergency_contact_relationship' => 'mother',
+                        'previous_school' => 'ABC High School',
+                        'qualification' => 'KCSE',
+                        'grade_score' => 'A-',
+                        'completion_year' => date('Y') - 1,
+                    ],
+                    [
+                        'student_number' => 'CS002',
+                        'first_name' => 'Mary',
+                        'last_name' => 'Smith',
+                        'email' => 'mary.smith@example.com',
+                        'phone' => '+254723456789',
+                        'date_of_birth' => '1999-03-20',
+                        'gender' => 'female',
+                        'nationality' => 'Kenyan',
+                        'id_number' => '87654321',
+                        'enrollment_year' => date('Y'),
+                        'admission_date' => date('Y-m-d'),
+                        'status' => 'active',
+                        'admission_level' => 'Level1',
+                        'permanent_address' => '789 Oak Avenue, Nairobi',
+                        'current_address' => '456 Campus Road, Nairobi',
+                        'emergency_contact_name' => 'Robert Smith',
+                        'emergency_contact_phone' => '+254787654321',
+                        'emergency_contact_relationship' => 'father',
+                        'previous_school' => 'XYZ High School',
+                        'qualification' => 'KCSE',
+                        'grade_score' => 'B+',
+                        'completion_year' => date('Y') - 1,
+                    ],
+                ];
+            }
+
+            public function headings(): array
+            {
+                return [
+                    'Student Number',
+                    'First Name',
+                    'Last Name',
+                    'Email',
+                    'Phone',
+                    'Date of Birth',
+                    'Gender',
+                    'Nationality',
+                    'ID Number',
+                    'Enrollment Year',
+                    'Admission Date',
+                    'Status',
+                    'Admission Level',
+                    'Permanent Address',
+                    'Current Address',
+                    'Emergency Contact Name',
+                    'Emergency Contact Phone',
+                    'Emergency Contact Relationship',
+                    'Previous School',
+                    'Qualification',
+                    'Grade Score',
+                    'Completion Year',
+                ];
+            }
+
+            public function registerEvents(): array
+            {
+                return [
+                    \Maatwebsite\Excel\Events\AfterSheet::class => function(\Maatwebsite\Excel\Events\AfterSheet $event) {
+                        $sheet = $event->sheet->getDelegate();
+                        $workbook = $event->sheet->getDelegate()->getParent();
+
+                        // Set the main sheet title
+                        $sheet->setTitle('College Students');
+
+                        // Add dropdown data to a hidden sheet
+                        $dropdownSheet = $workbook->createSheet();
+                        $dropdownSheet->setTitle('DropdownData');
+
+                        // Gender options (row 1)
+                        $dropdownSheet->setCellValue('A1', 'Gender Options');
+                        $dropdownSheet->setCellValue('A2', 'male');
+                        $dropdownSheet->setCellValue('A3', 'female');
+                        $dropdownSheet->setCellValue('A4', 'other');
+
+                        // Status options (row 6)
+                        $dropdownSheet->setCellValue('B1', 'Status Options');
+                        $dropdownSheet->setCellValue('B2', 'active');
+                        $dropdownSheet->setCellValue('B3', 'inactive');
+                        $dropdownSheet->setCellValue('B4', 'graduated');
+                        $dropdownSheet->setCellValue('B5', 'suspended');
+                        $dropdownSheet->setCellValue('B6', 'transferred');
+
+                        // Admission Level options (row 12)
+                        $dropdownSheet->setCellValue('C1', 'Admission Level Options');
+                        $dropdownSheet->setCellValue('C2', 'Level1');
+                        $dropdownSheet->setCellValue('C3', 'Level2');
+                        $dropdownSheet->setCellValue('C4', 'Level3');
+                        $dropdownSheet->setCellValue('C5', 'Level4');
+                        $dropdownSheet->setCellValue('C6', 'Level5');
+                        $dropdownSheet->setCellValue('C7', 'Level6');
+
+                        // Emergency Contact Relationship options (row 19)
+                        $dropdownSheet->setCellValue('D1', 'Relationship Options');
+                        $dropdownSheet->setCellValue('D2', 'parent');
+                        $dropdownSheet->setCellValue('D3', 'guardian');
+                        $dropdownSheet->setCellValue('D4', 'sibling');
+                        $dropdownSheet->setCellValue('D5', 'spouse');
+                        $dropdownSheet->setCellValue('D6', 'relative');
+                        $dropdownSheet->setCellValue('D7', 'friend');
+                        $dropdownSheet->setCellValue('D8', 'other');
+
+                        // Hide the dropdown data sheet
+                        $dropdownSheet->setSheetState(\PhpOffice\PhpSpreadsheet\Worksheet\Worksheet::SHEETSTATE_HIDDEN);
+
+                        // Create data validation for Gender column (G)
+                        $validation = $sheet->getDataValidation('G2:G1000');
+                        $validation->setType(\PhpOffice\PhpSpreadsheet\Cell\DataValidation::TYPE_LIST);
+                        $validation->setErrorStyle(\PhpOffice\PhpSpreadsheet\Cell\DataValidation::STYLE_INFORMATION);
+                        $validation->setAllowBlank(false);
+                        $validation->setShowInputMessage(true);
+                        $validation->setShowErrorMessage(true);
+                        $validation->setShowDropDown(true);
+                        $validation->setErrorTitle('Input error');
+                        $validation->setError('Value is not in list.');
+                        $validation->setPromptTitle('Pick from list');
+                        $validation->setPrompt('Please pick a value from the drop-down list.');
+                        $validation->setFormula1('DropdownData!$A$2:$A$4');
+
+                        // Create data validation for Status column (L)
+                        $validation = $sheet->getDataValidation('L2:L1000');
+                        $validation->setType(\PhpOffice\PhpSpreadsheet\Cell\DataValidation::TYPE_LIST);
+                        $validation->setErrorStyle(\PhpOffice\PhpSpreadsheet\Cell\DataValidation::STYLE_INFORMATION);
+                        $validation->setAllowBlank(false);
+                        $validation->setShowInputMessage(true);
+                        $validation->setShowErrorMessage(true);
+                        $validation->setShowDropDown(true);
+                        $validation->setErrorTitle('Input error');
+                        $validation->setError('Value is not in list.');
+                        $validation->setPromptTitle('Pick from list');
+                        $validation->setPrompt('Please pick a value from the drop-down list.');
+                        $validation->setFormula1('DropdownData!$B$2:$B$6');
+
+                        // Create data validation for Admission Level column (M)
+                        $validation = $sheet->getDataValidation('M2:M1000');
+                        $validation->setType(\PhpOffice\PhpSpreadsheet\Cell\DataValidation::TYPE_LIST);
+                        $validation->setErrorStyle(\PhpOffice\PhpSpreadsheet\Cell\DataValidation::STYLE_INFORMATION);
+                        $validation->setAllowBlank(true);
+                        $validation->setShowInputMessage(true);
+                        $validation->setShowErrorMessage(true);
+                        $validation->setShowDropDown(true);
+                        $validation->setErrorTitle('Input error');
+                        $validation->setError('Value is not in list.');
+                        $validation->setPromptTitle('Pick from list');
+                        $validation->setPrompt('Please pick a value from the drop-down list.');
+                        $validation->setFormula1('DropdownData!$C$2:$C$7');
+
+                        // Create data validation for Emergency Contact Relationship column (R)
+                        $validation = $sheet->getDataValidation('R2:R1000');
+                        $validation->setType(\PhpOffice\PhpSpreadsheet\Cell\DataValidation::TYPE_LIST);
+                        $validation->setErrorStyle(\PhpOffice\PhpSpreadsheet\Cell\DataValidation::STYLE_INFORMATION);
+                        $validation->setAllowBlank(true);
+                        $validation->setShowInputMessage(true);
+                        $validation->setShowErrorMessage(true);
+                        $validation->setShowDropDown(true);
+                        $validation->setErrorTitle('Input error');
+                        $validation->setError('Value is not in list.');
+                        $validation->setPromptTitle('Pick from list');
+                        $validation->setPrompt('Please pick a value from the drop-down list.');
+                        $validation->setFormula1('DropdownData!$D$2:$D$8');
+
+                        // Create Excel Table
+                        $tableRange = 'A1:V3'; // Headers + 2 sample rows
+                        $table = new \PhpOffice\PhpSpreadsheet\Worksheet\Table($tableRange, 'CollegeStudentImportTable');
+                        $table->setShowHeaderRow(true);
+                        $table->setShowTotalsRow(false);
+                        $table->setAllowFilter(true);
+                        $sheet->addTable($table);
+
+                        // Style the header row
+                        $headerStyle = $sheet->getStyle('A1:V1');
+                        $headerStyle->getFont()->setBold(true);
+                        $headerStyle->getFill()->setFillType(\PhpOffice\PhpSpreadsheet\Style\Fill::FILL_SOLID);
+                        $headerStyle->getFill()->getStartColor()->setRGB('E6E6FA'); // Light lavender
+                        $headerStyle->getBorders()->getAllBorders()->setBorderStyle(\PhpOffice\PhpSpreadsheet\Style\Border::BORDER_THIN);
+
+                        // Add data formatting for date columns
+                        $sheet->getStyle('F2:F1000')->getNumberFormat()->setFormatCode('yyyy-mm-dd');
+                        $sheet->getStyle('K2:K1000')->getNumberFormat()->setFormatCode('yyyy-mm-dd');
+
+                        // Set column widths
+                        $sheet->getColumnDimension('A')->setWidth(15); // Student Number
+                        $sheet->getColumnDimension('B')->setWidth(15); // First Name
+                        $sheet->getColumnDimension('C')->setWidth(15); // Last Name
+                        $sheet->getColumnDimension('D')->setWidth(25); // Email
+                        $sheet->getColumnDimension('E')->setWidth(15); // Phone
+                        $sheet->getColumnDimension('F')->setWidth(12); // Date of Birth
+                        $sheet->getColumnDimension('G')->setWidth(10); // Gender
+                        $sheet->getColumnDimension('H')->setWidth(12); // Nationality
+                        $sheet->getColumnDimension('I')->setWidth(12); // ID Number
+                        $sheet->getColumnDimension('J')->setWidth(12); // Enrollment Year
+                        $sheet->getColumnDimension('K')->setWidth(12); // Admission Date
+                        $sheet->getColumnDimension('L')->setWidth(10); // Status
+                        $sheet->getColumnDimension('M')->setWidth(12); // Admission Level
+                        $sheet->getColumnDimension('N')->setWidth(25); // Permanent Address
+                        $sheet->getColumnDimension('O')->setWidth(25); // Current Address
+                        $sheet->getColumnDimension('P')->setWidth(20); // Emergency Contact Name
+                        $sheet->getColumnDimension('Q')->setWidth(15); // Emergency Contact Phone
+                        $sheet->getColumnDimension('R')->setWidth(15); // Emergency Contact Relationship
+                        $sheet->getColumnDimension('S')->setWidth(20); // Previous School
+                        $sheet->getColumnDimension('T')->setWidth(12); // Qualification
+                        $sheet->getColumnDimension('U')->setWidth(10); // Grade Score
+                        $sheet->getColumnDimension('V')->setWidth(12); // Completion Year
+
+                        // Add instructions
+                        $sheet->setCellValue('A5', 'INSTRUCTIONS:');
+                        $sheet->setCellValue('A6', '1. IMPORTANT: Delete rows 2-3 (sample data) before filling your data');
+                        $sheet->setCellValue('A7', '2. Start entering your student data from row 2');
+                        $sheet->setCellValue('A8', '3. Use dropdown lists for Gender, Status, Admission Level, and Emergency Contact Relationship columns');
+                        $sheet->setCellValue('A9', '4. Date format should be YYYY-MM-DD (e.g., 2000-01-15) or Excel date format');
+                        $sheet->setCellValue('A10', '5. Phone numbers should include country code (e.g., +254712345678)');
+                        $sheet->setCellValue('A11', '6. Student Number and Email must be unique');
+                        $sheet->setCellValue('A12', '7. Required fields: Student Number, First Name, Email, Gender, Status, Permanent Address');
+                        $sheet->setCellValue('A13', '8. The system will import from the first sheet in your Excel file');
+
+                        // Style the instructions
+                        $instructionStyle = $sheet->getStyle('A5:A13');
+                        $instructionStyle->getFont()->setItalic(true);
+                        $instructionStyle->getFont()->getColor()->setRGB('666666');
+                    },
+                ];
+            }
+        }, 'college_students_import_template.xlsx');
+    }
+
+    /**
+     * Export students to Excel
+     */
+    public function exportExcel(Request $request, string $hashId = null)
+    {
+        // HashId is used for URL uniqueness but not validated for security
+        // since it's generated client-side for cache-busting purposes
+
+        $query = Student::with(['program', 'program.department']);
+
+        // Apply company/branch filters
+        $query->forCompany(Auth::user()->company_id);
+        if (session('branch_id')) {
+            $query->forBranch(session('branch_id'));
+        }
+
+        // Apply filters
+        if ($request->filled('program_id')) {
+            $query->where('program_id', $request->program_id);
+        }
+
+        if ($request->filled('department_id')) {
+            $query->whereHas('program', function($q) use ($request) {
+                $q->where('department_id', $request->department_id);
+            });
+        }
+
+        if ($request->filled('academic_year_id')) {
+            $academicYear = \App\Models\School\AcademicYear::find($request->academic_year_id);
+            if ($academicYear) {
+                $query->where('enrollment_year', intval(explode('-', $academicYear->year_name)[0]));
+            }
+        }
+
+        if ($request->filled('status')) {
+            $query->where('status', $request->status);
+        }
+
+        if ($request->filled('admission_level')) {
+            $query->where('admission_level', $request->admission_level);
+        }
+
+        $students = $query->orderBy('first_name')->orderBy('last_name')->get();
+
+        return Excel::download(new class($students) implements \Maatwebsite\Excel\Concerns\FromCollection, \Maatwebsite\Excel\Concerns\WithHeadings, \Maatwebsite\Excel\Concerns\WithMapping {
+            private $students;
+
+            public function __construct($students)
+            {
+                $this->students = $students;
+            }
+
+            public function collection()
+            {
+                return $this->students;
+            }
+
+            public function headings(): array
+            {
+                return [
+                    'Student Number',
+                    'First Name',
+                    'Last Name',
+                    'Email',
+                    'Phone',
+                    'Date of Birth',
+                    'Gender',
+                    'Nationality',
+                    'ID Number',
+                    'Program',
+                    'Department',
+                    'Enrollment Year',
+                    'Graduation Year',
+                    'Admission Date',
+                    'Status',
+                    'Admission Level',
+                    'Permanent Address',
+                    'Current Address',
+                    'Emergency Contact Name',
+                    'Emergency Contact Phone',
+                    'Emergency Contact Relationship',
+                    'Previous School',
+                    'Qualification',
+                    'Grade Score',
+                    'Completion Year'
+                ];
+            }
+
+            public function map($student): array
+            {
+                return [
+                    $student->student_number,
+                    $student->first_name,
+                    $student->last_name,
+                    $student->email,
+                    $student->phone,
+                    $student->date_of_birth ? \Carbon\Carbon::parse($student->date_of_birth)->format('Y-m-d') : '',
+                    ucfirst($student->gender ?? ''),
+                    $student->nationality,
+                    $student->id_number,
+                    $student->program->name ?? '',
+                    $student->program->department->name ?? '',
+                    $student->enrollment_year,
+                    $student->graduation_year,
+                    $student->admission_date ? \Carbon\Carbon::parse($student->admission_date)->format('Y-m-d') : '',
+                    ucfirst($student->status),
+                    $student->admission_level,
+                    $student->permanent_address,
+                    $student->current_address,
+                    $student->emergency_contact_name,
+                    $student->emergency_contact_phone,
+                    $student->emergency_contact_relationship,
+                    $student->previous_school,
+                    $student->qualification,
+                    $student->grade_score,
+                    $student->completion_year
+                ];
+            }
+        }, 'college_students_' . now()->format('Y-m-d_H-i-s') . '.xlsx');
+    }
+
+    /**
+     * Export students to PDF
+     */
+    public function exportPdf(Request $request, string $hashId = null)
+    {
+        // HashId is used for URL uniqueness but not validated for security
+        // since it's generated client-side for cache-busting purposes
+
+        $query = Student::with(['program', 'program.department']);
+
+        // Apply company/branch filters
+        $query->forCompany(Auth::user()->company_id);
+        if (session('branch_id')) {
+            $query->forBranch(session('branch_id'));
+        }
+
+        // Apply filters
+        if ($request->filled('program_id')) {
+            $query->where('program_id', $request->program_id);
+        }
+
+        if ($request->filled('department_id')) {
+            $query->whereHas('program', function($q) use ($request) {
+                $q->where('department_id', $request->department_id);
+            });
+        }
+
+        if ($request->filled('academic_year_id')) {
+            $academicYear = \App\Models\School\AcademicYear::find($request->academic_year_id);
+            if ($academicYear) {
+                $query->where('enrollment_year', intval(explode('-', $academicYear->year_name)[0]));
+            }
+        }
+
+        if ($request->filled('status')) {
+            $query->where('status', $request->status);
+        }
+
+        if ($request->filled('admission_level')) {
+            $query->where('admission_level', $request->admission_level);
+        }
+
+        $students = $query->orderBy('first_name')->orderBy('last_name')->get();
+
+        $data = [
+            'students' => $students,
+            'company' => \App\Models\Company::find(Auth::user()->company_id),
+            'title' => 'College Students Report',
+            'filters' => [
+                'program' => $request->filled('program_id') ? Program::find($request->program_id)->name ?? 'All' : 'All',
+                'department' => $request->filled('department_id') ? \App\Models\College\Department::find($request->department_id)->name ?? 'All' : 'All',
+                'academic_year' => $request->filled('academic_year_id') ? \App\Models\School\AcademicYear::find($request->academic_year_id)->year_name ?? 'All' : 'All',
+                'status' => $request->filled('status') ? ucfirst($request->status) : 'All',
+                'admission_level' => $request->filled('admission_level') ? $request->admission_level : 'All',
+            ],
+            'generated_at' => now(),
+            'logo_path' => null, // Will be set below
+        ];
+
+        // Check if company logo exists and set the correct path for DomPDF
+        if ($data['company'] && $data['company']->logo) {
+            $logoFullPath = public_path('storage/' . $data['company']->logo);
+            if (file_exists($logoFullPath)) {
+                $data['logo_path'] = $logoFullPath;
+            }
+        }
+
+        $pdf = Pdf::loadView('college.students.exports.pdf', $data);
+        $pdf->setPaper('a4', 'landscape');
+        $pdf->setOptions(['isRemoteEnabled' => false, 'isHtml5ParserEnabled' => true]);
+
+        return $pdf->download('college_students_report_' . now()->format('Y-m-d_H-i-s') . '.pdf');
+    }
+}
