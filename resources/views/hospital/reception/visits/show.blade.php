@@ -130,6 +130,8 @@
                                                 <th>Status</th>
                                                 <th>Waiting Time</th>
                                                 <th>Service Time</th>
+                                                <th>Start Time</th>
+                                                <th>End Time</th>
                                                 <th>Served By</th>
                                             </tr>
                                         </thead>
@@ -157,8 +159,32 @@
                                                             {{ ucfirst(str_replace('_', ' ', $visitDept->status)) }}
                                                         </span>
                                                     </td>
-                                                    <td>{{ $visitDept->waiting_time_formatted ?? '00:00:00' }}</td>
-                                                    <td>{{ $visitDept->service_time_formatted ?? '00:00:00' }}</td>
+                                                    <td>
+                                                        <span class="text-warning">
+                                                            <i class="bx bx-time"></i> {{ $visitDept->waiting_time_formatted ?? '00:00:00' }}
+                                                        </span>
+                                                    </td>
+                                                    <td>
+                                                        <span class="text-primary">
+                                                            <i class="bx bx-time-five"></i> {{ $visitDept->service_time_formatted ?? '00:00:00' }}
+                                                        </span>
+                                                    </td>
+                                                    <td>
+                                                        @if($visitDept->service_started_at)
+                                                            <small>{{ $visitDept->service_started_at->format('d M Y, H:i') }}</small>
+                                                        @elseif($visitDept->waiting_started_at)
+                                                            <small class="text-muted">{{ $visitDept->waiting_started_at->format('d M Y, H:i') }}</small>
+                                                        @else
+                                                            <span class="text-muted">-</span>
+                                                        @endif
+                                                    </td>
+                                                    <td>
+                                                        @if($visitDept->service_ended_at)
+                                                            <small>{{ $visitDept->service_ended_at->format('d M Y, H:i') }}</small>
+                                                        @else
+                                                            <span class="text-muted">-</span>
+                                                        @endif
+                                                    </td>
                                                     <td>{{ $visitDept->servedBy->name ?? 'N/A' }}</td>
                                                 </tr>
                                             @endforeach
@@ -407,6 +433,209 @@
                         </div>
                     </div>
                 @endif
+
+                <!-- Lab Results -->
+                @if($visit->labResults->count() > 0)
+                    <div class="col-12 mb-4">
+                        <div class="card">
+                            <div class="card-header d-flex justify-content-between align-items-center">
+                                <h5 class="card-title mb-0">
+                                    <i class="bx bx-test-tube me-2"></i>Lab Results
+                                    <span class="badge bg-info ms-2">{{ $visit->labResults->count() }}</span>
+                                </h5>
+                            </div>
+                            <div class="card-body">
+                                <div class="table-responsive">
+                                    <table class="table table-hover">
+                                        <thead>
+                                            <tr>
+                                                <th>Test Name</th>
+                                                <th>Result</th>
+                                                <th>Status</th>
+                                                <th>Completed At</th>
+                                                <th>Performed By</th>
+                                                <th>Actions</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            @foreach($visit->labResults as $result)
+                                                <tr>
+                                                    <td><strong>{{ $result->test_name }}</strong></td>
+                                                    <td>
+                                                        @if($result->result_value)
+                                                            {{ $result->result_value }}
+                                                            @if($result->unit) {{ $result->unit }} @endif
+                                                        @else
+                                                            <span class="text-muted">Pending</span>
+                                                        @endif
+                                                    </td>
+                                                    <td>
+                                                        @php
+                                                            $statusColors = [
+                                                                'pending' => 'warning',
+                                                                'ready' => 'success',
+                                                                'printed' => 'info'
+                                                            ];
+                                                            $color = $statusColors[$result->result_status] ?? 'secondary';
+                                                        @endphp
+                                                        <span class="badge bg-{{ $color }}">
+                                                            {{ ucfirst($result->result_status) }}
+                                                        </span>
+                                                    </td>
+                                                    <td>
+                                                        {{ $result->completed_at ? $result->completed_at->format('d M Y, H:i') : 'N/A' }}
+                                                    </td>
+                                                    <td>{{ $result->performedBy->name ?? 'N/A' }}</td>
+                                                    <td>
+                                                        @if($result->result_status === 'ready' || $result->result_status === 'printed')
+                                                            <div class="btn-group btn-group-sm">
+                                                                <a href="{{ route('hospital.reception.visits.print-results', ['visit' => $visit->id, 'type' => 'lab', 'result_id' => $result->id, 'format' => 'a4']) }}" 
+                                                                   class="btn btn-outline-primary" target="_blank" title="Print A4">
+                                                                    <i class="bx bx-printer"></i> A4
+                                                                </a>
+                                                                <a href="{{ route('hospital.reception.visits.print-results', ['visit' => $visit->id, 'type' => 'lab', 'result_id' => $result->id, 'format' => 'thermal']) }}" 
+                                                                   class="btn btn-outline-info" target="_blank" title="Print Thermal Receipt">
+                                                                    <i class="bx bx-receipt"></i> Thermal
+                                                                </a>
+                                                            </div>
+                                                        @else
+                                                            <span class="text-muted">Not ready</span>
+                                                        @endif
+                                                    </td>
+                                                </tr>
+                                            @endforeach
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                @endif
+
+                <!-- Ultrasound Results -->
+                @if($visit->ultrasoundResults->count() > 0)
+                    <div class="col-12 mb-4">
+                        <div class="card">
+                            <div class="card-header d-flex justify-content-between align-items-center">
+                                <h5 class="card-title mb-0">
+                                    <i class="bx bx-scan me-2"></i>Ultrasound Results
+                                    <span class="badge bg-info ms-2">{{ $visit->ultrasoundResults->count() }}</span>
+                                </h5>
+                            </div>
+                            <div class="card-body">
+                                <div class="table-responsive">
+                                    <table class="table table-hover">
+                                        <thead>
+                                            <tr>
+                                                <th>Examination Type</th>
+                                                <th>Findings</th>
+                                                <th>Status</th>
+                                                <th>Completed At</th>
+                                                <th>Performed By</th>
+                                                <th>Actions</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            @foreach($visit->ultrasoundResults as $result)
+                                                <tr>
+                                                    <td><strong>{{ $result->examination_type }}</strong></td>
+                                                    <td>
+                                                        @if($result->findings)
+                                                            {{ \Str::limit($result->findings, 50) }}
+                                                        @else
+                                                            <span class="text-muted">Pending</span>
+                                                        @endif
+                                                    </td>
+                                                    <td>
+                                                        @php
+                                                            $statusColors = [
+                                                                'pending' => 'warning',
+                                                                'ready' => 'success',
+                                                                'printed' => 'info'
+                                                            ];
+                                                            $color = $statusColors[$result->result_status] ?? 'secondary';
+                                                        @endphp
+                                                        <span class="badge bg-{{ $color }}">
+                                                            {{ ucfirst($result->result_status) }}
+                                                        </span>
+                                                    </td>
+                                                    <td>
+                                                        {{ $result->completed_at ? $result->completed_at->format('d M Y, H:i') : 'N/A' }}
+                                                    </td>
+                                                    <td>{{ $result->performedBy->name ?? 'N/A' }}</td>
+                                                    <td>
+                                                        @if($result->result_status === 'ready' || $result->result_status === 'printed')
+                                                            <div class="btn-group btn-group-sm">
+                                                                <a href="{{ route('hospital.reception.visits.print-results', ['visit' => $visit->id, 'type' => 'ultrasound', 'result_id' => $result->id, 'format' => 'a4']) }}" 
+                                                                   class="btn btn-outline-primary" target="_blank" title="Print A4">
+                                                                    <i class="bx bx-printer"></i> A4
+                                                                </a>
+                                                                <a href="{{ route('hospital.reception.visits.print-results', ['visit' => $visit->id, 'type' => 'ultrasound', 'result_id' => $result->id, 'format' => 'thermal']) }}" 
+                                                                   class="btn btn-outline-info" target="_blank" title="Print Thermal Receipt">
+                                                                    <i class="bx bx-receipt"></i> Thermal
+                                                                </a>
+                                                            </div>
+                                                        @else
+                                                            <span class="text-muted">Not ready</span>
+                                                        @endif
+                                                    </td>
+                                                </tr>
+                                            @endforeach
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                @endif
+
+                <!-- Actions Card -->
+                <div class="col-12 mb-4">
+                    <div class="card border-primary">
+                        <div class="card-header bg-primary text-white">
+                            <h5 class="card-title mb-0">
+                                <i class="bx bx-cog me-2"></i>Reception Actions
+                            </h5>
+                        </div>
+                        <div class="card-body">
+                            <div class="d-flex gap-2 flex-wrap">
+                                @if($visit->labResults->where('result_status', 'ready')->count() > 0 || $visit->ultrasoundResults->where('result_status', 'ready')->count() > 0)
+                                    <form action="{{ route('hospital.reception.visits.send-to-doctor', $visit->id) }}" method="POST" class="d-inline">
+                                        @csrf
+                                        <button type="submit" class="btn btn-warning" onclick="return confirm('Send patient back to Doctor for review?')">
+                                            <i class="bx bx-user-md me-1"></i>Send to Doctor
+                                        </button>
+                                    </form>
+                                @endif
+                                
+                                @php
+                                    $finalBill = $visit->bills->where('bill_type', 'final')->first();
+                                    $preBill = $visit->bills->where('bill_type', 'pre_bill')->first();
+                                @endphp
+                                
+                                @if($finalBill)
+                                    <a href="{{ route('hospital.cashier.bills.show', $finalBill->id) }}" class="btn btn-success">
+                                        <i class="bx bx-money me-1"></i>View Final Bill
+                                    </a>
+                                @else
+                                    <a href="{{ route('hospital.reception.visits.create-bill', $visit->id) }}" class="btn btn-success" onclick="return confirm('Create a new final bill for this visit?')">
+                                        <i class="bx bx-plus-circle me-1"></i>Create Final Bill
+                                    </a>
+                                @endif
+                                
+                                @if($preBill)
+                                    <a href="{{ route('hospital.cashier.bills.show', $preBill->id) }}" class="btn btn-info">
+                                        <i class="bx bx-receipt me-1"></i>View Pre-Bill
+                                    </a>
+                                @endif
+                                
+                                <a href="{{ route('hospital.reception.index') }}" class="btn btn-secondary">
+                                    <i class="bx bx-arrow-back me-1"></i>Back to Reception
+                                </a>
+                            </div>
+                        </div>
+                    </div>
+                </div>
             </div>
         </div>
     </div>

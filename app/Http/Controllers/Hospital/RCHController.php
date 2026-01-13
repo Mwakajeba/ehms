@@ -5,7 +5,7 @@ namespace App\Http\Controllers\Hospital;
 use App\Http\Controllers\Controller;
 use App\Models\Hospital\Visit;
 use App\Models\Hospital\VisitDepartment;
-use App\Models\Hospital\LabResult;
+use App\Models\Hospital\RCHRecord;
 use App\Models\Hospital\VisitBill;
 use App\Models\Hospital\VisitBillItem;
 use App\Models\Inventory\Item;
@@ -13,10 +13,10 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 
-class LabController extends Controller
+class RCHController extends Controller
 {
     /**
-     * Display lab dashboard
+     * Display RCH dashboard
      */
     public function index()
     {
@@ -24,13 +24,13 @@ class LabController extends Controller
         $companyId = $user->company_id;
         $branchId = session('branch_id') ?? $user->branch_id;
 
-        // Get visits waiting for lab (bills must be cleared)
+        // Get visits waiting for RCH (bills must be cleared)
         $waitingVisits = Visit::with(['patient', 'visitDepartments.department', 'bills'])
             ->where('company_id', $companyId)
             ->where('branch_id', $branchId)
             ->whereHas('visitDepartments', function ($q) {
                 $q->whereHas('department', function ($query) {
-                    $query->where('type', 'lab');
+                    $query->where('type', 'rch');
                 })->where('status', 'waiting');
             })
             ->whereHas('bills', function ($q) {
@@ -39,46 +39,61 @@ class LabController extends Controller
             ->orderBy('visit_date', 'asc')
             ->get();
 
-        // Get visits in service at lab
-        $inServiceVisits = Visit::with(['patient', 'visitDepartments.department', 'labResults'])
+        // Get visits in service at RCH
+        $inServiceVisits = Visit::with(['patient', 'visitDepartments.department', 'rchRecords'])
             ->where('company_id', $companyId)
             ->where('branch_id', $branchId)
             ->whereHas('visitDepartments', function ($q) {
                 $q->whereHas('department', function ($query) {
-                    $query->where('type', 'lab');
+                    $query->where('type', 'rch');
                 })->where('status', 'in_service');
             })
             ->orderBy('visit_date', 'asc')
             ->get();
 
-        // Get ready results (for printing)
-        $readyResults = LabResult::with(['patient', 'visit'])
+        // Get completed records today
+        $completedToday = RCHRecord::where('company_id', $companyId)
+            ->where('branch_id', $branchId)
+            ->where('status', 'completed')
+            ->whereDate('completed_at', today())
+            ->count();
+
+        // Get follow-up required records
+        $followUpRequired = RCHRecord::with(['patient', 'visit'])
             ->where('company_id', $companyId)
             ->where('branch_id', $branchId)
-            ->where('result_status', 'ready')
-            ->orderBy('completed_at', 'desc')
+            ->where('status', 'follow_up_required')
+            ->where('next_appointment_date', '>=', today())
+            ->orderBy('next_appointment_date', 'asc')
             ->get();
+
+        // Get statistics by service type
+        $statsByType = RCHRecord::where('company_id', $companyId)
+            ->where('branch_id', $branchId)
+            ->whereDate('created_at', today())
+            ->select('service_type', DB::raw('count(*) as count'))
+            ->groupBy('service_type')
+            ->get()
+            ->pluck('count', 'service_type');
 
         // Get statistics
         $stats = [
             'waiting' => $waitingVisits->count(),
             'in_service' => $inServiceVisits->count(),
-            'ready_results' => $readyResults->count(),
-            'completed_today' => LabResult::where('company_id', $companyId)
-                ->where('branch_id', $branchId)
-                ->whereDate('completed_at', today())
-                ->count(),
+            'completed_today' => $completedToday,
+            'follow_up_required' => $followUpRequired->count(),
+            'by_type' => $statsByType,
         ];
 
-        return view('hospital.lab.index', compact('waitingVisits', 'inServiceVisits', 'readyResults', 'stats'));
+        return view('hospital.rch.index', compact('waitingVisits', 'inServiceVisits', 'followUpRequired', 'stats'));
     }
 
     /**
-     * Show lab test form for a visit
+     * Show RCH service form for a visit
      */
     public function create($visitId)
     {
-        $visit = Visit::with(['patient', 'visitDepartments.department', 'bills', 'labResults'])
+        $visit = Visit::with(['patient', 'visitDepartments.department', 'bills', 'rchRecords'])
             ->findOrFail($visitId);
 
         // Verify access
@@ -89,22 +104,22 @@ class LabController extends Controller
         // Check if bill is cleared
         $hasClearedBill = $visit->bills()->where('clearance_status', 'cleared')->exists();
         if (!$hasClearedBill) {
-            return redirect()->route('hospital.lab.index')
-                ->withErrors(['error' => 'Patient bill must be cleared before lab tests.']);
+            return redirect()->route('hospital.rch.index')
+                ->withErrors(['error' => 'Patient bill must be cleared before RCH services.']);
         }
 
-        // Get lab test services from inventory_items
-        $labTests = Item::where('company_id', Auth::user()->company_id)
+        // Get RCH services from inventory_items
+        $rchServices = Item::where('company_id', Auth::user()->company_id)
             ->where('item_type', 'service')
             ->where('is_active', true)
             ->orderBy('name')
             ->get();
 
-        return view('hospital.lab.create', compact('visit', 'labTests'));
+        return view('hospital.rch.create', compact('visit', 'rchServices'));
     }
 
     /**
-     * Store lab result
+     * Store RCH record
      */
     public function store(Request $request, $visitId)
     {
@@ -117,13 +132,22 @@ class LabController extends Controller
 
         $validated = $request->validate([
             'service_id' => 'nullable|exists:inventory_items,id',
-            'test_name' => 'required|string|max:255',
-            'result_value' => 'nullable|string',
-            'unit' => 'nullable|string|max:50',
-            'reference_range' => 'nullable|string|max:255',
-            'status' => 'nullable|in:normal,abnormal,critical',
+            'service_type' => 'required|in:antenatal_care,postnatal_care,child_health,family_planning,immunization,growth_monitoring,health_education,counseling,other',
+            'service_description' => 'nullable|string',
+            'findings' => 'nullable|string',
+            'recommendations' => 'nullable|string',
+            'counseling_notes' => 'nullable|string',
+            'health_education_topics' => 'nullable|string',
             'notes' => 'nullable|string',
-            'result_status' => 'required|in:pending,ready',
+            'vitals' => 'nullable|array',
+            'vitals.weight' => 'nullable|numeric|min:0',
+            'vitals.height' => 'nullable|numeric|min:0',
+            'vitals.blood_pressure' => 'nullable|string',
+            'vitals.temperature' => 'nullable|numeric',
+            'vitals.pulse' => 'nullable|integer|min:0',
+            'vitals.respiratory_rate' => 'nullable|integer|min:0',
+            'status' => 'required|in:pending,completed,follow_up_required',
+            'next_appointment_date' => 'nullable|date|after_or_equal:today',
         ]);
 
         try {
@@ -133,23 +157,26 @@ class LabController extends Controller
             $companyId = $user->company_id;
             $branchId = session('branch_id') ?? $user->branch_id;
 
-            // Generate result number
-            $resultNumber = 'LAB-' . now()->format('Ymd') . '-' . str_pad(LabResult::whereDate('created_at', today())->count() + 1, 4, '0', STR_PAD_LEFT);
+            // Generate record number
+            $recordNumber = 'RCH-' . now()->format('Ymd') . '-' . str_pad(RCHRecord::whereDate('created_at', today())->count() + 1, 4, '0', STR_PAD_LEFT);
 
-            // Create lab result
-            $labResult = LabResult::create([
-                'result_number' => $resultNumber,
+            // Create RCH record
+            $rchRecord = RCHRecord::create([
+                'record_number' => $recordNumber,
                 'visit_id' => $visit->id,
                 'patient_id' => $visit->patient_id,
                 'service_id' => $validated['service_id'] ?? null,
-                'test_name' => $validated['test_name'],
-                'result_value' => $validated['result_value'] ?? null,
-                'unit' => $validated['unit'] ?? null,
-                'reference_range' => $validated['reference_range'] ?? null,
-                'status' => $validated['status'] ?? null,
+                'service_type' => $validated['service_type'],
+                'service_description' => $validated['service_description'] ?? null,
+                'findings' => $validated['findings'] ?? null,
+                'recommendations' => $validated['recommendations'] ?? null,
+                'counseling_notes' => $validated['counseling_notes'] ?? null,
+                'health_education_topics' => $validated['health_education_topics'] ?? null,
                 'notes' => $validated['notes'] ?? null,
-                'result_status' => $validated['result_status'],
-                'completed_at' => $validated['result_status'] === 'ready' ? now() : null,
+                'vitals' => $validated['vitals'] ?? null,
+                'status' => $validated['status'],
+                'next_appointment_date' => $validated['next_appointment_date'] ?? null,
+                'completed_at' => $validated['status'] === 'completed' ? now() : null,
                 'performed_by' => $user->id,
                 'company_id' => $companyId,
                 'branch_id' => $branchId,
@@ -188,7 +215,7 @@ class LabController extends Controller
                     }
 
                     // Check if this service is already in the bill
-                    $existingItem = \App\Models\Hospital\VisitBillItem::where('bill_id', $finalBill->id)
+                    $existingItem = VisitBillItem::where('bill_id', $finalBill->id)
                         ->where('service_id', $service->id)
                         ->first();
 
@@ -196,11 +223,11 @@ class LabController extends Controller
                         // Add service to bill
                         $itemTotal = $service->unit_price;
                         
-                        \App\Models\Hospital\VisitBillItem::create([
+                        VisitBillItem::create([
                             'bill_id' => $finalBill->id,
                             'item_type' => 'service',
                             'service_id' => $service->id,
-                            'item_name' => $service->name . ' - ' . $validated['test_name'],
+                            'item_name' => $service->name . ' - ' . ucfirst(str_replace('_', ' ', $validated['service_type'])),
                             'quantity' => 1,
                             'unit_price' => $service->unit_price,
                             'total' => $itemTotal,
@@ -215,49 +242,49 @@ class LabController extends Controller
                 }
             }
 
-            // Update lab visit department status to completed if result is ready
-            if ($validated['result_status'] === 'ready') {
-                $labDept = $visit->visitDepartments()
+            // Update RCH visit department status to completed if status is completed
+            if ($validated['status'] === 'completed') {
+                $rchDept = $visit->visitDepartments()
                     ->whereHas('department', function ($q) {
-                        $q->where('type', 'lab');
+                        $q->where('type', 'rch');
                     })
                     ->first();
 
-                if ($labDept && $labDept->status === 'in_service') {
-                    $labDept->status = 'completed';
-                    $labDept->service_ended_at = now();
-                    $labDept->calculateServiceTime();
-                    $labDept->save();
+                if ($rchDept && $rchDept->status === 'in_service') {
+                    $rchDept->status = 'completed';
+                    $rchDept->service_ended_at = now();
+                    $rchDept->calculateServiceTime();
+                    $rchDept->save();
                 }
             }
 
             DB::commit();
 
-            return redirect()->route('hospital.lab.show', $labResult->id)
-                ->with('success', 'Lab result recorded successfully.');
+            return redirect()->route('hospital.rch.show', $rchRecord->id)
+                ->with('success', 'RCH record created successfully.');
         } catch (\Exception $e) {
             DB::rollBack();
-            return back()->withInput()->withErrors(['error' => 'Failed to record lab result: ' . $e->getMessage()]);
+            return back()->withInput()->withErrors(['error' => 'Failed to create RCH record: ' . $e->getMessage()]);
         }
     }
 
     /**
-     * Show lab result details
+     * Show RCH record details
      */
     public function show($id)
     {
-        $labResult = LabResult::with([
+        $rchRecord = RCHRecord::with([
             'patient',
             'visit',
             'performedBy',
         ])->findOrFail($id);
 
         // Verify access
-        if ($labResult->company_id !== Auth::user()->company_id) {
-            abort(403, 'Unauthorized access to lab result.');
+        if ($rchRecord->company_id !== Auth::user()->company_id) {
+            abort(403, 'Unauthorized access to RCH record.');
         }
 
-        return view('hospital.lab.show', compact('labResult'));
+        return view('hospital.rch.show', compact('rchRecord'));
     }
 
     /**
@@ -272,89 +299,69 @@ class LabController extends Controller
             abort(403, 'Unauthorized access to visit.');
         }
 
-        // Find lab department
-        $labDept = $visit->visitDepartments()
+        // Find RCH department
+        $rchDept = $visit->visitDepartments()
             ->whereHas('department', function ($q) {
-                $q->where('type', 'lab');
+                $q->where('type', 'rch');
             })
             ->where('status', 'waiting')
             ->first();
 
-        if (!$labDept) {
-            return back()->withErrors(['error' => 'Lab department not found or already started.']);
+        if (!$rchDept) {
+            return back()->withErrors(['error' => 'RCH department not found or already started.']);
         }
 
         try {
-            $labDept->status = 'in_service';
-            $labDept->service_started_at = now();
-            $labDept->served_by = Auth::id();
-            $labDept->calculateWaitingTime();
-            $labDept->save();
+            $rchDept->status = 'in_service';
+            $rchDept->service_started_at = now();
+            $rchDept->served_by = Auth::id();
+            $rchDept->calculateWaitingTime();
+            $rchDept->save();
 
-            return redirect()->route('hospital.lab.index')
-                ->with('success', 'Lab service started.');
+            return redirect()->route('hospital.rch.index')
+                ->with('success', 'RCH service started.');
         } catch (\Exception $e) {
             return back()->withErrors(['error' => 'Failed to start service: ' . $e->getMessage()]);
         }
     }
 
     /**
-     * Mark result as ready
+     * Mark record as completed
      */
-    public function markReady($id)
+    public function markCompleted($id)
     {
-        $labResult = LabResult::findOrFail($id);
+        $rchRecord = RCHRecord::findOrFail($id);
 
         // Verify access
-        if ($labResult->company_id !== Auth::user()->company_id) {
-            abort(403, 'Unauthorized access to lab result.');
+        if ($rchRecord->company_id !== Auth::user()->company_id) {
+            abort(403, 'Unauthorized access to RCH record.');
         }
 
         try {
-            $labResult->result_status = 'ready';
-            $labResult->completed_at = now();
-            $labResult->save();
+            $rchRecord->status = 'completed';
+            $rchRecord->completed_at = now();
+            $rchRecord->save();
 
-            // Update lab visit department status to completed
-            $visit = $labResult->visit;
-            $labDept = $visit->visitDepartments()
+            // Update RCH visit department status to completed
+            $visit = $rchRecord->visit;
+            $rchDept = $visit->visitDepartments()
                 ->whereHas('department', function ($q) {
-                    $q->where('type', 'lab');
+                    $q->where('type', 'rch');
                 })
                 ->where('status', 'in_service')
                 ->first();
 
-            if ($labDept) {
-                $labDept->status = 'completed';
-                $labDept->service_ended_at = now();
-                $labDept->calculateServiceTime();
-                $labDept->save();
+            if ($rchDept) {
+                $rchDept->status = 'completed';
+                $rchDept->service_ended_at = now();
+                $rchDept->calculateServiceTime();
+                $rchDept->save();
             }
 
-            return redirect()->route('hospital.lab.show', $labResult->id)
-                ->with('success', 'Lab result marked as ready.');
+            return redirect()->route('hospital.rch.show', $rchRecord->id)
+                ->with('success', 'RCH record marked as completed.');
         } catch (\Exception $e) {
-            return back()->withErrors(['error' => 'Failed to mark result as ready: ' . $e->getMessage()]);
+            return back()->withErrors(['error' => 'Failed to mark record as completed: ' . $e->getMessage()]);
         }
-    }
-
-    /**
-     * Print result
-     */
-    public function printResult($id)
-    {
-        $labResult = LabResult::with(['patient', 'visit'])->findOrFail($id);
-
-        // Verify access
-        if ($labResult->company_id !== Auth::user()->company_id) {
-            abort(403, 'Unauthorized access to lab result.');
-        }
-
-        // Mark as printed
-        $labResult->result_status = 'printed';
-        $labResult->printed_at = now();
-        $labResult->save();
-
-        return view('hospital.lab.print', compact('labResult'));
     }
 }

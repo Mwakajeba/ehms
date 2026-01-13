@@ -385,9 +385,12 @@ class ReceptionController extends Controller
         $visit = Visit::with([
             'patient',
             'visitDepartments.department',
+            'visitDepartments.servedBy',
             'bills.items',
             'triageVitals',
             'consultation',
+            'labResults.performedBy',
+            'ultrasoundResults.performedBy',
         ])->findOrFail($id);
 
         return view('hospital.reception.visits.show', compact('visit'));
@@ -396,14 +399,161 @@ class ReceptionController extends Controller
     /**
      * Print lab/ultrasound results
      */
-    public function printResults(Request $request, $visitId)
+    public function printResults(Request $request, $visit)
     {
-        $visit = Visit::findOrFail($visitId);
+        $visit = Visit::findOrFail($visit);
         $type = $request->get('type'); // 'lab' or 'ultrasound'
+        $format = $request->get('format', 'a4'); // 'a4' or 'thermal'
+        $resultId = $request->get('result_id');
 
-        // Logic to print results
-        // This would typically generate a PDF
-        return response()->json(['message' => 'Print functionality to be implemented']);
+        // Verify access
+        if ($visit->company_id !== Auth::user()->company_id) {
+            abort(403, 'Unauthorized access to visit.');
+        }
+
+        if ($type === 'lab' && $resultId) {
+            $labResult = \App\Models\Hospital\LabResult::with(['patient', 'visit', 'performedBy'])->findOrFail($resultId);
+            if ($labResult->company_id !== Auth::user()->company_id) {
+                abort(403, 'Unauthorized access to result.');
+            }
+            
+            // Mark as printed
+            $labResult->result_status = 'printed';
+            $labResult->printed_at = now();
+            $labResult->save();
+
+            if ($format === 'thermal') {
+                return view('hospital.reception.visits.print.thermal-lab', compact('labResult'));
+            }
+            return view('hospital.lab.print', compact('labResult'));
+        } elseif ($type === 'ultrasound' && $resultId) {
+            $ultrasoundResult = \App\Models\Hospital\UltrasoundResult::with(['patient', 'visit', 'performedBy'])->findOrFail($resultId);
+            if ($ultrasoundResult->company_id !== Auth::user()->company_id) {
+                abort(403, 'Unauthorized access to result.');
+            }
+            
+            // Mark as printed
+            $ultrasoundResult->result_status = 'printed';
+            $ultrasoundResult->printed_at = now();
+            $ultrasoundResult->save();
+
+            // Get images for ultrasound
+            $images = $ultrasoundResult->images ?? [];
+
+            if ($format === 'thermal') {
+                return view('hospital.reception.visits.print.thermal-ultrasound', compact('ultrasoundResult'));
+            }
+            return view('hospital.ultrasound.print', compact('ultrasoundResult', 'images'));
+        }
+
+        return back()->withErrors(['error' => 'Invalid result type or ID.']);
+    }
+
+    /**
+     * Create a new bill for a visit
+     */
+    public function createBill($visitId)
+    {
+        $visit = Visit::with(['patient', 'bills'])->findOrFail($visitId);
+
+        // Verify access
+        if ($visit->company_id !== Auth::user()->company_id) {
+            abort(403, 'Unauthorized access to visit.');
+        }
+
+        // Check if there's already a final bill
+        $hasFinalBill = $visit->bills()->where('bill_type', 'final')->exists();
+        if ($hasFinalBill) {
+            return redirect()->route('hospital.reception.visits.show', $visit->id)
+                ->with('info', 'A final bill already exists for this visit.');
+        }
+
+        try {
+            DB::beginTransaction();
+
+            $user = Auth::user();
+            $companyId = $user->company_id;
+            $branchId = session('branch_id') ?? $user->branch_id;
+
+            // Generate bill number
+            $billNumber = 'BILL-' . now()->format('Ymd') . '-' . str_pad(VisitBill::whereDate('created_at', today())->count() + 1, 4, '0', STR_PAD_LEFT);
+
+            // Create bill
+            $bill = VisitBill::create([
+                'bill_number' => $billNumber,
+                'visit_id' => $visit->id,
+                'patient_id' => $visit->patient_id,
+                'bill_type' => 'final',
+                'subtotal' => 0,
+                'discount' => 0,
+                'tax' => 0,
+                'total' => 0,
+                'paid' => 0,
+                'balance' => 0,
+                'payment_status' => 'pending',
+                'clearance_status' => 'pending',
+                'company_id' => $companyId,
+                'branch_id' => $branchId,
+                'created_by' => $user->id,
+            ]);
+
+            DB::commit();
+
+            return redirect()->route('hospital.cashier.bills.show', $bill->id)
+                ->with('success', 'Bill created successfully. You can now add items.');
+        } catch (\Exception $e) {
+            DB::rollBack();
+            return redirect()->route('hospital.reception.visits.show', $visit->id)
+                ->withErrors(['error' => 'Failed to create bill: ' . $e->getMessage()]);
+        }
+    }
+
+    /**
+     * Send results back to Doctor
+     */
+    public function sendToDoctor(Request $request, $visit)
+    {
+        $visit = Visit::findOrFail($visit);
+
+        // Verify access
+        if ($visit->company_id !== Auth::user()->company_id) {
+            abort(403, 'Unauthorized access to visit.');
+        }
+
+        // Check if visit has a doctor consultation
+        $doctorDept = $visit->visitDepartments()
+            ->whereHas('department', function ($q) {
+                $q->where('type', 'doctor');
+            })
+            ->first();
+
+        if (!$doctorDept) {
+            return back()->withErrors(['error' => 'No doctor department found for this visit.']);
+        }
+
+        // If doctor department is completed, create a new visit department entry
+        if ($doctorDept->status === 'completed') {
+            // Create a new visit department entry for follow-up
+            VisitDepartment::create([
+                'visit_id' => $visit->id,
+                'department_id' => $doctorDept->department_id,
+                'status' => 'waiting',
+                'waiting_started_at' => now(),
+                'sequence' => $visit->visitDepartments()->max('sequence') + 1,
+            ]);
+        } else {
+            // Reset doctor department to waiting
+            $doctorDept->status = 'waiting';
+            $doctorDept->waiting_started_at = now();
+            $doctorDept->service_started_at = null;
+            $doctorDept->service_ended_at = null;
+            $doctorDept->waiting_time_seconds = 0;
+            $doctorDept->service_time_seconds = 0;
+            $doctorDept->save();
+        }
+
+        return redirect()->route('hospital.reception.visits.show', $visit->id)
+            ->with('success', 'Patient sent back to Doctor for review.');
     }
 
     /**

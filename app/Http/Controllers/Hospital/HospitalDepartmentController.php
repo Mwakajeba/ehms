@@ -22,8 +22,12 @@ class HospitalDepartmentController extends Controller
 
             $departments = HospitalDepartment::where('company_id', $companyId);
             
+            // Show both branch-specific and company-wide (null) departments
             if ($branchId) {
-                $departments->where('branch_id', $branchId);
+                $departments->where(function($query) use ($branchId) {
+                    $query->where('branch_id', $branchId)
+                          ->orWhereNull('branch_id');
+                });
             } else {
                 $departments->whereNull('branch_id');
             }

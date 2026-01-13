@@ -98,6 +98,11 @@ class Visit extends Model
         return $this->hasMany(DentalRecord::class);
     }
 
+    public function rchRecords()
+    {
+        return $this->hasMany(RCHRecord::class);
+    }
+
     // Scopes
     public function scopePending($query)
     {
