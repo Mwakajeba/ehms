@@ -883,7 +883,12 @@ Route::prefix('hospital/reception')->name('hospital.reception.')->middleware(['a
     Route::post('/visits/create/{patientId}', [App\Http\Controllers\Hospital\ReceptionController::class, 'storeVisit'])->name('visits.store');
     Route::get('/visits/{id}', [App\Http\Controllers\Hospital\ReceptionController::class, 'showVisit'])->name('visits.show');
     Route::get('/visits/{id}/location', [App\Http\Controllers\Hospital\ReceptionController::class, 'getPatientLocation'])->name('visits.location');
-    Route::post('/visits/{id}/print-results', [App\Http\Controllers\Hospital\ReceptionController::class, 'printResults'])->name('visits.print-results');
+    Route::get('/visits/{visit}/print-results', [App\Http\Controllers\Hospital\ReceptionController::class, 'printResults'])->name('visits.print-results');
+    Route::post('/visits/{visit}/send-to-doctor', [App\Http\Controllers\Hospital\ReceptionController::class, 'sendToDoctor'])->name('visits.send-to-doctor');
+    Route::get('/visits/{visit}/create-bill', [App\Http\Controllers\Hospital\ReceptionController::class, 'createBill'])->name('visits.create-bill');
+    
+    // Reports routes
+    Route::get('/reports', [App\Http\Controllers\Hospital\ReceptionReportController::class, 'index'])->name('reports.index');
 });
 
 // Hospital Admin Routes
@@ -927,6 +932,7 @@ Route::prefix('hospital')->name('hospital.')->middleware(['auth', 'company.scope
     Route::prefix('lab')->name('lab.')->group(function () {
         Route::get('/', [App\Http\Controllers\Hospital\LabController::class, 'index'])->name('index');
         Route::get('/visits/{visitId}/create', [App\Http\Controllers\Hospital\LabController::class, 'create'])->name('create');
+        Route::get('/visits/{visitId}', [App\Http\Controllers\Hospital\LabController::class, 'create'])->name('visits.show'); // Redirect to create form
         Route::post('/visits/{visitId}', [App\Http\Controllers\Hospital\LabController::class, 'store'])->name('store');
         Route::get('/results/{id}', [App\Http\Controllers\Hospital\LabController::class, 'show'])->name('show');
         Route::post('/visits/{visitId}/start-service', [App\Http\Controllers\Hospital\LabController::class, 'startService'])->name('start-service');
@@ -966,10 +972,16 @@ Route::prefix('hospital')->name('hospital.')->middleware(['auth', 'company.scope
         Route::post('/records/{id}/mark-completed', [App\Http\Controllers\Hospital\DentalController::class, 'markCompleted'])->name('mark-completed');
     });
     
-    // RCH
-    Route::get('/rch', function () {
-        return view('hospital.coming-soon', ['module' => 'RCH', 'description' => 'Reproductive and Child Health services']);
-    })->name('rch.index');
+    // RCH Routes
+    Route::prefix('rch')->name('rch.')->group(function () {
+        Route::get('/', [App\Http\Controllers\Hospital\RCHController::class, 'index'])->name('index');
+        Route::get('/visits/{visitId}/create', [App\Http\Controllers\Hospital\RCHController::class, 'create'])->name('create');
+        Route::get('/visits/{visitId}', [App\Http\Controllers\Hospital\RCHController::class, 'create'])->name('visits.show'); // Redirect to create form
+        Route::post('/visits/{visitId}', [App\Http\Controllers\Hospital\RCHController::class, 'store'])->name('store');
+        Route::get('/records/{id}', [App\Http\Controllers\Hospital\RCHController::class, 'show'])->name('show');
+        Route::post('/visits/{visitId}/start-service', [App\Http\Controllers\Hospital\RCHController::class, 'startService'])->name('start-service');
+        Route::post('/records/{id}/mark-completed', [App\Http\Controllers\Hospital\RCHController::class, 'markCompleted'])->name('mark-completed');
+    });
     
     // Vaccine
     Route::get('/vaccine', function () {

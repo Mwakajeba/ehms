@@ -86,6 +86,9 @@
                                                 <th>Phone</th>
                                                 <th>Current Department</th>
                                                 <th>Status</th>
+                                                <th>Waiting Time</th>
+                                                <th>Service Time</th>
+                                                <th>Start Time</th>
                                                 <th>Visit Date</th>
                                                 <th>Actions</th>
                                             </tr>
@@ -97,15 +100,30 @@
                                                         ->whereIn('status', ['waiting', 'in_service'])
                                                         ->orderBy('sequence')
                                                         ->first();
+                                                    
+                                                    // Calculate total time in hospital
+                                                    $totalTime = 0;
+                                                    foreach ($visit->visitDepartments as $vd) {
+                                                        if ($vd->waiting_time_seconds) {
+                                                            $totalTime += $vd->waiting_time_seconds;
+                                                        }
+                                                        if ($vd->service_time_seconds) {
+                                                            $totalTime += $vd->service_time_seconds;
+                                                        }
+                                                    }
+                                                    $totalHours = floor($totalTime / 3600);
+                                                    $totalMinutes = floor(($totalTime % 3600) / 60);
+                                                    $totalSeconds = $totalTime % 60;
                                                 @endphp
                                                 <tr>
-                                                    <td>{{ $visit->visit_number }}</td>
+                                                    <td><strong>{{ $visit->visit_number }}</strong></td>
                                                     <td>{{ $visit->patient->full_name }}</td>
                                                     <td>{{ $visit->patient->mrn }}</td>
                                                     <td>{{ $visit->patient->phone ?? 'N/A' }}</td>
                                                     <td>
                                                         @if($currentDept)
                                                             <span class="badge bg-info">{{ $currentDept->department->name ?? 'N/A' }}</span>
+                                                            <br><small class="text-muted">{{ ucfirst(str_replace('_', ' ', $currentDept->department->type ?? '')) }}</small>
                                                         @else
                                                             <span class="text-muted">-</span>
                                                         @endif
@@ -115,10 +133,37 @@
                                                             {{ ucfirst(str_replace('_', ' ', $currentDept->status ?? 'waiting')) }}
                                                         </span>
                                                     </td>
+                                                    <td>
+                                                        @if($currentDept)
+                                                            <span class="text-warning">
+                                                                <i class="bx bx-time"></i> {{ $currentDept->waiting_time_formatted ?? '00:00:00' }}
+                                                            </span>
+                                                        @else
+                                                            <span class="text-muted">-</span>
+                                                        @endif
+                                                    </td>
+                                                    <td>
+                                                        @if($currentDept && $currentDept->service_started_at)
+                                                            <span class="text-primary">
+                                                                <i class="bx bx-time-five"></i> {{ $currentDept->service_time_formatted ?? '00:00:00' }}
+                                                            </span>
+                                                        @else
+                                                            <span class="text-muted">-</span>
+                                                        @endif
+                                                    </td>
+                                                    <td>
+                                                        @if($currentDept && $currentDept->service_started_at)
+                                                            <small>{{ $currentDept->service_started_at->format('H:i') }}</small>
+                                                        @elseif($currentDept && $currentDept->waiting_started_at)
+                                                            <small class="text-muted">{{ $currentDept->waiting_started_at->format('H:i') }}</small>
+                                                        @else
+                                                            <span class="text-muted">-</span>
+                                                        @endif
+                                                    </td>
                                                     <td>{{ $visit->visit_date->format('d M Y, H:i') }}</td>
                                                     <td>
-                                                        <a href="{{ route('hospital.reception.visits.show', $visit->id) }}" class="btn btn-sm btn-info">
-                                                            <i class="bx bx-show me-1"></i>View
+                                                        <a href="{{ route('hospital.reception.visits.show', $visit->id) }}" class="btn btn-sm btn-info" title="View Details">
+                                                            <i class="bx bx-show"></i>
                                                         </a>
                                                     </td>
                                                 </tr>

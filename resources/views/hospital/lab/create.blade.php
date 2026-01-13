@@ -194,7 +194,11 @@
 <script>
 function selectTest(select) {
     if (select.value) {
-        document.getElementById('test_name').value = select.value;
+        const selectedOption = select.options[select.selectedIndex];
+        const testName = selectedOption.getAttribute('data-name');
+        if (testName) {
+            document.getElementById('test_name').value = testName;
+        }
     }
 }
 </script>
