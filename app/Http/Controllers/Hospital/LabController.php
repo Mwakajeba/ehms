@@ -119,6 +119,7 @@ class LabController extends Controller
         }
 
         $validated = $request->validate([
+            'service_id' => 'nullable|exists:inventory_items,id',
             'test_name' => 'required|string|max:255',
             'result_value' => 'nullable|string',
             'unit' => 'nullable|string|max:50',
@@ -138,17 +139,12 @@ class LabController extends Controller
             // Generate result number
             $resultNumber = 'LAB-' . now()->format('Ymd') . '-' . str_pad(LabResult::whereDate('created_at', today())->count() + 1, 4, '0', STR_PAD_LEFT);
 
-            // Get service from inventory_items (for now, we'll use a default or create a mapping)
-            // Note: The migration references hospital_services, but we're using inventory_items
-            // This might need a migration update later
-            $serviceId = $request->service_id ?? null;
-
             // Create lab result
             $labResult = LabResult::create([
                 'result_number' => $resultNumber,
                 'visit_id' => $visit->id,
                 'patient_id' => $visit->patient_id,
-                'service_id' => $serviceId, // This might need to be updated to reference inventory_items
+                'service_id' => $validated['service_id'] ?? null,
                 'test_name' => $validated['test_name'],
                 'result_value' => $validated['result_value'] ?? null,
                 'unit' => $validated['unit'] ?? null,
