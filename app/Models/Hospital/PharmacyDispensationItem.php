@@ -32,6 +32,6 @@ class PharmacyDispensationItem extends Model
 
     public function product()
     {
-        return $this->belongsTo(HospitalProduct::class, 'product_id');
+        return $this->belongsTo(\App\Models\Inventory\Item::class, 'product_id');
     }
 }

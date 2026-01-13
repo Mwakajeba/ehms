@@ -9,32 +9,34 @@ use App\Traits\LogsActivity;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 
-class LabResult extends Model
+class DentalRecord extends Model
 {
     use HasFactory, LogsActivity;
 
     protected $fillable = [
-        'result_number',
+        'record_number',
         'visit_id',
         'patient_id',
         'service_id',
-        'test_name',
-        'result_value',
-        'unit',
-        'reference_range',
-        'status',
+        'procedure_type',
+        'procedure_description',
+        'findings',
+        'treatment_plan',
+        'treatment_performed',
         'notes',
-        'result_status',
+        'images',
+        'status',
+        'next_appointment_date',
         'completed_at',
-        'printed_at',
         'performed_by',
         'company_id',
         'branch_id',
     ];
 
     protected $casts = [
+        'images' => 'array',
+        'next_appointment_date' => 'date',
         'completed_at' => 'datetime',
-        'printed_at' => 'datetime',
     ];
 
     // Relationships
@@ -69,13 +71,18 @@ class LabResult extends Model
     }
 
     // Scopes
-    public function scopeReady($query)
+    public function scopeCompleted($query)
     {
-        return $query->where('result_status', 'ready');
+        return $query->where('status', 'completed');
     }
 
     public function scopePending($query)
     {
-        return $query->where('result_status', 'pending');
+        return $query->where('status', 'pending');
+    }
+
+    public function scopeFollowUpRequired($query)
+    {
+        return $query->where('status', 'follow_up_required');
     }
 }

@@ -923,25 +923,48 @@ Route::prefix('hospital')->name('hospital.')->middleware(['auth', 'company.scope
         Route::post('/visits/{visitId}/start-service', [App\Http\Controllers\Hospital\DoctorController::class, 'startService'])->name('start-service');
     });
     
-    // Lab
-    Route::get('/lab', function () {
-        return view('hospital.coming-soon', ['module' => 'Lab', 'description' => 'Laboratory test results management']);
-    })->name('lab.index');
+    // Lab Routes
+    Route::prefix('lab')->name('lab.')->group(function () {
+        Route::get('/', [App\Http\Controllers\Hospital\LabController::class, 'index'])->name('index');
+        Route::get('/visits/{visitId}/create', [App\Http\Controllers\Hospital\LabController::class, 'create'])->name('create');
+        Route::post('/visits/{visitId}', [App\Http\Controllers\Hospital\LabController::class, 'store'])->name('store');
+        Route::get('/results/{id}', [App\Http\Controllers\Hospital\LabController::class, 'show'])->name('show');
+        Route::post('/visits/{visitId}/start-service', [App\Http\Controllers\Hospital\LabController::class, 'startService'])->name('start-service');
+        Route::post('/results/{id}/mark-ready', [App\Http\Controllers\Hospital\LabController::class, 'markReady'])->name('mark-ready');
+        Route::get('/results/{id}/print', [App\Http\Controllers\Hospital\LabController::class, 'printResult'])->name('print');
+    });
     
-    // Ultrasound
-    Route::get('/ultrasound', function () {
-        return view('hospital.coming-soon', ['module' => 'Ultrasound', 'description' => 'Ultrasound examination results management']);
-    })->name('ultrasound.index');
+    // Ultrasound Routes
+    Route::prefix('ultrasound')->name('ultrasound.')->group(function () {
+        Route::get('/', [App\Http\Controllers\Hospital\UltrasoundController::class, 'index'])->name('index');
+        Route::get('/visits/{visitId}/create', [App\Http\Controllers\Hospital\UltrasoundController::class, 'create'])->name('create');
+        Route::post('/visits/{visitId}', [App\Http\Controllers\Hospital\UltrasoundController::class, 'store'])->name('store');
+        Route::get('/results/{id}', [App\Http\Controllers\Hospital\UltrasoundController::class, 'show'])->name('show');
+        Route::post('/visits/{visitId}/start-service', [App\Http\Controllers\Hospital\UltrasoundController::class, 'startService'])->name('start-service');
+        Route::post('/results/{id}/mark-ready', [App\Http\Controllers\Hospital\UltrasoundController::class, 'markReady'])->name('mark-ready');
+        Route::get('/results/{id}/print', [App\Http\Controllers\Hospital\UltrasoundController::class, 'printResult'])->name('print');
+    });
     
-    // Pharmacy
-    Route::get('/pharmacy', function () {
-        return view('hospital.coming-soon', ['module' => 'Pharmacy', 'description' => 'Medication dispensing and prescription management']);
-    })->name('pharmacy.index');
+    // Pharmacy Routes
+    Route::prefix('pharmacy')->name('pharmacy.')->group(function () {
+        Route::get('/', [App\Http\Controllers\Hospital\PharmacyController::class, 'index'])->name('index');
+        Route::get('/visits/{visitId}/create', [App\Http\Controllers\Hospital\PharmacyController::class, 'create'])->name('create');
+        Route::post('/visits/{visitId}', [App\Http\Controllers\Hospital\PharmacyController::class, 'store'])->name('store');
+        Route::get('/dispensations/{id}', [App\Http\Controllers\Hospital\PharmacyController::class, 'show'])->name('show');
+        Route::post('/visits/{visitId}/start-service', [App\Http\Controllers\Hospital\PharmacyController::class, 'startService'])->name('start-service');
+        Route::post('/dispensations/{id}/dispense', [App\Http\Controllers\Hospital\PharmacyController::class, 'dispense'])->name('dispense');
+        Route::get('/product-stock', [App\Http\Controllers\Hospital\PharmacyController::class, 'getProductStock'])->name('product-stock');
+    });
     
-    // Dental
-    Route::get('/dental', function () {
-        return view('hospital.coming-soon', ['module' => 'Dental', 'description' => 'Dental procedures and treatments']);
-    })->name('dental.index');
+    // Dental Routes
+    Route::prefix('dental')->name('dental.')->group(function () {
+        Route::get('/', [App\Http\Controllers\Hospital\DentalController::class, 'index'])->name('index');
+        Route::get('/visits/{visitId}/create', [App\Http\Controllers\Hospital\DentalController::class, 'create'])->name('create');
+        Route::post('/visits/{visitId}', [App\Http\Controllers\Hospital\DentalController::class, 'store'])->name('store');
+        Route::get('/records/{id}', [App\Http\Controllers\Hospital\DentalController::class, 'show'])->name('show');
+        Route::post('/visits/{visitId}/start-service', [App\Http\Controllers\Hospital\DentalController::class, 'startService'])->name('start-service');
+        Route::post('/records/{id}/mark-completed', [App\Http\Controllers\Hospital\DentalController::class, 'markCompleted'])->name('mark-completed');
+    });
     
     // RCH
     Route::get('/rch', function () {

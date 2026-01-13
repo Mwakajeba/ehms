@@ -50,7 +50,7 @@ class UltrasoundResult extends Model
 
     public function service()
     {
-        return $this->belongsTo(HospitalService::class);
+        return $this->belongsTo(\App\Models\Inventory\Item::class, 'service_id');
     }
 
     public function performedBy()
