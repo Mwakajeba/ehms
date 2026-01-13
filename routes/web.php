@@ -956,10 +956,15 @@ Route::prefix('hospital')->name('hospital.')->middleware(['auth', 'company.scope
         Route::get('/product-stock', [App\Http\Controllers\Hospital\PharmacyController::class, 'getProductStock'])->name('product-stock');
     });
     
-    // Dental
-    Route::get('/dental', function () {
-        return view('hospital.coming-soon', ['module' => 'Dental', 'description' => 'Dental procedures and treatments']);
-    })->name('dental.index');
+    // Dental Routes
+    Route::prefix('dental')->name('dental.')->group(function () {
+        Route::get('/', [App\Http\Controllers\Hospital\DentalController::class, 'index'])->name('index');
+        Route::get('/visits/{visitId}/create', [App\Http\Controllers\Hospital\DentalController::class, 'create'])->name('create');
+        Route::post('/visits/{visitId}', [App\Http\Controllers\Hospital\DentalController::class, 'store'])->name('store');
+        Route::get('/records/{id}', [App\Http\Controllers\Hospital\DentalController::class, 'show'])->name('show');
+        Route::post('/visits/{visitId}/start-service', [App\Http\Controllers\Hospital\DentalController::class, 'startService'])->name('start-service');
+        Route::post('/records/{id}/mark-completed', [App\Http\Controllers\Hospital\DentalController::class, 'markCompleted'])->name('mark-completed');
+    });
     
     // RCH
     Route::get('/rch', function () {
