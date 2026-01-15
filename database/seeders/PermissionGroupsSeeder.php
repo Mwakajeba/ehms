@@ -128,6 +128,15 @@ class PermissionGroupsSeeder extends Seeder
                 'icon' => 'bx bx-user-check',
                 'sort_order' => 11,
             ],
+            [
+                'name' => 'hospital',
+                'display_name' => 'Hospital Management',
+                'description' => 'Hospital management system permissions',
+                'color' => '#e83e8c',
+                'icon' => 'bx bx-plus-medical',
+                'sort_order' => 12,
+                'is_active' => true
+            ],
         ];
 
         // Create permission groups
@@ -770,6 +779,97 @@ class PermissionGroupsSeeder extends Seeder
                 'edit bus',
                 'delete bus',
                 'assign bus routes',
+            ],
+
+            'hospital' => [
+                // Hospital Management
+                'view hospital management',
+                // Reception
+                'view reception',
+                'create patient',
+                'edit patient',
+                'delete patient',
+                'request patient deletion',
+                'view patient',
+                'search patients',
+                'create visit',
+                'view visit',
+                'print results',
+                'view patient location',
+                // Cashier
+                'view cashier',
+                'view bills',
+                'create payment',
+                'clear bill',
+                // Triage
+                'view triage',
+                'create vitals',
+                'route patient',
+                // Doctor
+                'view doctor',
+                'create consultation',
+                'edit consultation',
+                'view consultation',
+                // Lab
+                'view lab',
+                'create lab result',
+                'edit lab result',
+                'view lab result',
+                'mark lab result ready',
+                // Ultrasound
+                'view ultrasound',
+                'create ultrasound result',
+                'edit ultrasound result',
+                'view ultrasound result',
+                'mark ultrasound result ready',
+                // Pharmacy
+                'view pharmacy',
+                'create dispensation',
+                'view dispensation',
+                'dispense medication',
+                // Dental
+                'view dental',
+                'create dental procedure',
+                'view dental procedure',
+                // RCH
+                'view rch',
+                'create rch service',
+                'view rch service',
+                // Vaccine
+                'view vaccine',
+                'record vaccine',
+                // Injection
+                'view injection',
+                'record injection',
+                // Family Planning
+                'view family planning',
+                'create family planning service',
+                'view family planning service',
+                // Hospital Admin
+                'view hospital admin',
+                'manage departments',
+                'create department',
+                'edit department',
+                'delete department',
+                'manage services',
+                'create service',
+                'edit service',
+                'delete service',
+                'manage products',
+                'create product',
+                'edit product',
+                'delete product',
+                'manage hospital users',
+                'assign hospital roles',
+                'view deletion requests',
+                'approve deletion request',
+                'reject deletion request',
+                // Hospital Reports
+                'view hospital reports',
+                'view clinical reports',
+                'view financial reports',
+                'view operational reports',
+                'view audit logs',
             ],
 
             'hr_payroll' => [

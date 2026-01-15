@@ -7,12 +7,22 @@ use App\Models\Hospital\Visit;
 use App\Models\Hospital\VisitDepartment;
 use App\Models\Hospital\Consultation;
 use App\Models\Hospital\HospitalDepartment;
+use App\Models\Hospital\VisitBill;
+use App\Models\Hospital\VisitBillItem;
+use App\Models\Inventory\Item;
+use App\Services\InventoryStockService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 
 class DoctorController extends Controller
 {
+    protected $stockService;
+
+    public function __construct(InventoryStockService $stockService)
+    {
+        $this->stockService = $stockService;
+    }
     /**
      * Display doctor dashboard
      */
@@ -101,7 +111,99 @@ class DoctorController extends Controller
             ->orderBy('name')
             ->get();
 
-        return view('hospital.doctor.create', compact('visit', 'departments'));
+        // Get medicines (products) with stock availability
+        $user = Auth::user();
+        $companyId = $user->company_id;
+        $locationId = session('location_id') ?? $user->location_id ?? 1;
+        $medicines = Item::where('company_id', $companyId)
+            ->where('item_type', 'product')
+            ->where('is_active', true)
+            ->orderBy('name')
+            ->get()
+            ->map(function ($item) use ($locationId) {
+                $stock = $this->stockService->getItemStockAtLocation($item->id, $locationId);
+                return [
+                    'id' => $item->id,
+                    'name' => $item->name,
+                    'code' => $item->code,
+                    'unit_price' => $item->unit_price,
+                    'unit_of_measure' => $item->unit_of_measure,
+                    'available_stock' => $stock,
+                    'is_available' => $stock > 0,
+                ];
+            });
+
+        // Get lab test services
+        $labServices = Item::where('company_id', $companyId)
+            ->where('item_type', 'service')
+            ->where('is_active', true)
+            ->where(function ($q) {
+                $q->where('name', 'like', '%lab%')
+                  ->orWhere('name', 'like', '%test%')
+                  ->orWhere('description', 'like', '%lab%');
+            })
+            ->orderBy('name')
+            ->get()
+            ->map(function ($item) {
+                return [
+                    'id' => $item->id,
+                    'name' => $item->name,
+                    'code' => $item->code,
+                    'unit_price' => $item->unit_price,
+                ];
+            });
+
+        // Get ultrasound services
+        $ultrasoundServices = Item::where('company_id', $companyId)
+            ->where('item_type', 'service')
+            ->where('is_active', true)
+            ->where(function ($q) {
+                $q->where('name', 'like', '%ultrasound%')
+                  ->orWhere('name', 'like', '%scan%')
+                  ->orWhere('description', 'like', '%ultrasound%');
+            })
+            ->orderBy('name')
+            ->get()
+            ->map(function ($item) {
+                return [
+                    'id' => $item->id,
+                    'name' => $item->name,
+                    'code' => $item->code,
+                    'unit_price' => $item->unit_price,
+                ];
+            });
+
+        // Get all other services (for general service selection)
+        $otherServices = Item::where('company_id', $companyId)
+            ->where('item_type', 'service')
+            ->where('is_active', true)
+            ->where(function ($q) {
+                $q->where(function ($query) {
+                    $query->where('name', 'not like', '%lab%')
+                          ->where('name', 'not like', '%test%')
+                          ->where('name', 'not like', '%ultrasound%')
+                          ->where('name', 'not like', '%scan%');
+                })
+                ->where(function ($query) {
+                    $query->whereNull('description')
+                          ->orWhere(function ($q2) {
+                              $q2->where('description', 'not like', '%lab%')
+                                 ->where('description', 'not like', '%ultrasound%');
+                          });
+                });
+            })
+            ->orderBy('name')
+            ->get()
+            ->map(function ($item) {
+                return [
+                    'id' => $item->id,
+                    'name' => $item->name,
+                    'code' => $item->code,
+                    'unit_price' => $item->unit_price,
+                ];
+            });
+
+        return view('hospital.doctor.create', compact('visit', 'departments', 'medicines', 'labServices', 'ultrasoundServices', 'otherServices'));
     }
 
     /**
@@ -126,6 +228,15 @@ class DoctorController extends Controller
             'notes' => 'nullable|string',
             'route_to_departments' => 'nullable|array',
             'route_to_departments.*' => 'exists:hospital_departments,id',
+            'medicines' => 'nullable|array',
+            'medicines.*.product_id' => 'required|exists:inventory_items,id',
+            'medicines.*.quantity' => 'required|numeric|min:1',
+            'lab_tests' => 'nullable|array',
+            'lab_tests.*.service_id' => 'required|exists:inventory_items,id',
+            'ultrasound_services' => 'nullable|array',
+            'ultrasound_services.*.service_id' => 'required|exists:inventory_items,id',
+            'other_services' => 'nullable|array',
+            'other_services.*.service_id' => 'required|exists:inventory_items,id',
         ]);
 
         try {
@@ -186,6 +297,174 @@ class DoctorController extends Controller
                         ]);
                     }
                 }
+            }
+
+            // Create bill for selected medicines, lab tests, ultrasound, and other services
+            $locationId = session('location_id') ?? $user->location_id ?? 1;
+            $hasItems = !empty($validated['medicines']) || 
+                       !empty($validated['lab_tests']) || 
+                       !empty($validated['ultrasound_services']) || 
+                       !empty($validated['other_services']);
+
+            if ($hasItems) {
+                // Get or create final bill
+                $finalBill = VisitBill::where('visit_id', $visit->id)
+                    ->where('bill_type', 'final')
+                    ->first();
+
+                if (!$finalBill) {
+                    $billNumber = 'BILL-' . now()->format('Ymd') . '-' . str_pad(VisitBill::whereDate('created_at', today())->count() + 1, 4, '0', STR_PAD_LEFT);
+                    
+                    $finalBill = VisitBill::create([
+                        'bill_number' => $billNumber,
+                        'visit_id' => $visit->id,
+                        'patient_id' => $visit->patient_id,
+                        'bill_type' => 'final',
+                        'subtotal' => 0,
+                        'discount' => 0,
+                        'tax' => 0,
+                        'total' => 0,
+                        'paid' => 0,
+                        'balance' => 0,
+                        'payment_status' => 'pending',
+                        'clearance_status' => 'pending',
+                        'company_id' => $companyId,
+                        'branch_id' => $branchId,
+                        'created_by' => $user->id,
+                    ]);
+                }
+
+                $subtotal = 0;
+
+                // Add medicines to bill
+                if (!empty($validated['medicines'])) {
+                    foreach ($validated['medicines'] as $medicineData) {
+                        $product = Item::find($medicineData['product_id']);
+                        if (!$product || $product->item_type !== 'product') {
+                            continue;
+                        }
+
+                        $quantity = $medicineData['quantity'] ?? 1;
+                        
+                        // Check stock availability
+                        $availableStock = $this->stockService->getItemStockAtLocation($product->id, $locationId);
+                        if ($quantity > $availableStock) {
+                            DB::rollBack();
+                            return back()->withInput()->withErrors([
+                                'error' => "Insufficient stock for {$product->name}. Available: {$availableStock}, Required: {$quantity}"
+                            ]);
+                        }
+
+                        $itemTotal = $product->unit_price * $quantity;
+                        $subtotal += $itemTotal;
+
+                        VisitBillItem::create([
+                            'bill_id' => $finalBill->id,
+                            'item_type' => 'product',
+                            'product_id' => $product->id,
+                            'item_name' => $product->name,
+                            'quantity' => $quantity,
+                            'unit_price' => $product->unit_price,
+                            'total' => $itemTotal,
+                        ]);
+                    }
+                }
+
+                // Add lab tests to bill
+                if (!empty($validated['lab_tests'])) {
+                    foreach ($validated['lab_tests'] as $labData) {
+                        $service = Item::find($labData['service_id']);
+                        if (!$service || $service->item_type !== 'service') {
+                            continue;
+                        }
+
+                        // Check if already in bill
+                        $existingItem = VisitBillItem::where('bill_id', $finalBill->id)
+                            ->where('service_id', $service->id)
+                            ->first();
+
+                        if (!$existingItem) {
+                            $itemTotal = $service->unit_price;
+                            $subtotal += $itemTotal;
+
+                            VisitBillItem::create([
+                                'bill_id' => $finalBill->id,
+                                'item_type' => 'service',
+                                'service_id' => $service->id,
+                                'item_name' => $service->name,
+                                'quantity' => 1,
+                                'unit_price' => $service->unit_price,
+                                'total' => $itemTotal,
+                            ]);
+                        }
+                    }
+                }
+
+                // Add ultrasound services to bill
+                if (!empty($validated['ultrasound_services'])) {
+                    foreach ($validated['ultrasound_services'] as $ultrasoundData) {
+                        $service = Item::find($ultrasoundData['service_id']);
+                        if (!$service || $service->item_type !== 'service') {
+                            continue;
+                        }
+
+                        // Check if already in bill
+                        $existingItem = VisitBillItem::where('bill_id', $finalBill->id)
+                            ->where('service_id', $service->id)
+                            ->first();
+
+                        if (!$existingItem) {
+                            $itemTotal = $service->unit_price;
+                            $subtotal += $itemTotal;
+
+                            VisitBillItem::create([
+                                'bill_id' => $finalBill->id,
+                                'item_type' => 'service',
+                                'service_id' => $service->id,
+                                'item_name' => $service->name,
+                                'quantity' => 1,
+                                'unit_price' => $service->unit_price,
+                                'total' => $itemTotal,
+                            ]);
+                        }
+                    }
+                }
+
+                // Add other services to bill
+                if (!empty($validated['other_services'])) {
+                    foreach ($validated['other_services'] as $serviceData) {
+                        $service = Item::find($serviceData['service_id']);
+                        if (!$service || $service->item_type !== 'service') {
+                            continue;
+                        }
+
+                        // Check if already in bill
+                        $existingItem = VisitBillItem::where('bill_id', $finalBill->id)
+                            ->where('service_id', $service->id)
+                            ->first();
+
+                        if (!$existingItem) {
+                            $itemTotal = $service->unit_price;
+                            $subtotal += $itemTotal;
+
+                            VisitBillItem::create([
+                                'bill_id' => $finalBill->id,
+                                'item_type' => 'service',
+                                'service_id' => $service->id,
+                                'item_name' => $service->name,
+                                'quantity' => 1,
+                                'unit_price' => $service->unit_price,
+                                'total' => $itemTotal,
+                            ]);
+                        }
+                    }
+                }
+
+                // Update bill totals
+                $finalBill->subtotal = $subtotal;
+                $finalBill->total = $subtotal;
+                $finalBill->balance = $subtotal;
+                $finalBill->calculateTotals();
             }
 
             DB::commit();

@@ -893,8 +893,16 @@ Route::prefix('hospital/reception')->name('hospital.reception.')->middleware(['a
 
 // Hospital Admin Routes
 Route::prefix('hospital/admin')->name('hospital.admin.')->middleware(['auth', 'company.scope', 'require.branch'])->group(function () {
+    Route::get('/', [App\Http\Controllers\Hospital\HospitalAdminController::class, 'index'])->name('index');
+    
     // Departments CRUD
     Route::resource('departments', App\Http\Controllers\Hospital\HospitalDepartmentController::class);
+    
+    // Deletion Requests
+    Route::get('/deletion-requests', [App\Http\Controllers\Hospital\DeletionRequestController::class, 'index'])->name('deletion-requests.index');
+    Route::get('/deletion-requests/{id}', [App\Http\Controllers\Hospital\DeletionRequestController::class, 'show'])->name('deletion-requests.show');
+    Route::post('/deletion-requests/{id}/approve', [App\Http\Controllers\Hospital\DeletionRequestController::class, 'approve'])->name('deletion-requests.approve');
+    Route::post('/deletion-requests/{id}/reject', [App\Http\Controllers\Hospital\DeletionRequestController::class, 'reject'])->name('deletion-requests.reject');
 });
 
 // Cashier Routes

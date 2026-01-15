@@ -85,77 +85,77 @@ class MenuSeeder extends Seeder
             //     'hiddenRoutes' => ['cash_collateral_types.create', 'cash_collateral_types.edit', 'cash_collateral_types.destroy', 'cash_collateral_types.show', 'cash_collaterals.create', 'cash_collaterals.edit', 'cash_collaterals.destroy', 'cash_collaterals.show'],
             // ],
 
-            'Imprests' => [
-                'icon' => 'bx bx-money',
-                'visibleRoutes' => [
-                    ['name' => 'Imprest Management', 'route' => 'imprest.index'],
-                ],
-                'hiddenRoutes' => [
-                    'imprest.requests.index',
-                    'imprest.requests.create',
-                    'imprest.requests.edit',
-                    'imprest.requests.destroy',
-                    'imprest.requests.show',
-                    'imprest.requests.store',
-                    'imprest.requests.update',
-                    'imprest.checked.index',
-                    'imprest.approved.index',
-                    'imprest.disbursed.index',
-                    'imprest.closed.index',
-                    'imprest.checked.check',
-                    'imprest.approved.approve',
-                    'imprest.disbursed.disburse',
-                    'imprest.close',
-                    'imprest.liquidation.create',
-                    'imprest.liquidation.store',
-                    'imprest.liquidation.show',
-                    'imprest.liquidation.verify',
-                    'imprest.liquidation.approve',
-                ],
-            ],
+            // 'Imprests' => [
+            //     'icon' => 'bx bx-money',
+            //     'visibleRoutes' => [
+            //         ['name' => 'Imprest Management', 'route' => 'imprest.index'],
+            //     ],
+            //     'hiddenRoutes' => [
+            //         'imprest.requests.index',
+            //         'imprest.requests.create',
+            //         'imprest.requests.edit',
+            //         'imprest.requests.destroy',
+            //         'imprest.requests.show',
+            //         'imprest.requests.store',
+            //         'imprest.requests.update',
+            //         'imprest.checked.index',
+            //         'imprest.approved.index',
+            //         'imprest.disbursed.index',
+            //         'imprest.closed.index',
+            //         'imprest.checked.check',
+            //         'imprest.approved.approve',
+            //         'imprest.disbursed.disburse',
+            //         'imprest.close',
+            //         'imprest.liquidation.create',
+            //         'imprest.liquidation.store',
+            //         'imprest.liquidation.show',
+            //         'imprest.liquidation.verify',
+            //         'imprest.liquidation.approve',
+            //     ],
+            // ],
 
-            'Store Requisitions' => [
-                'icon' => 'bx bx-package',
-                'visibleRoutes' => [
-                    ['name' => 'Store Requisition Management', 'route' => 'store-requisitions.index'],
-                ],
-                'hiddenRoutes' => [
-                    'store-requisitions.create',
-                    'store-requisitions.edit',
-                    'store-requisitions.destroy',
-                    'store-requisitions.show',
-                    'store-requisitions.store',
-                    'store-requisitions.update',
-                    'store-requisitions.approve',
-                    'store-requisitions.approval-settings.index',
-                    'store-requisitions.approval-settings.store',
-                    'store-requisitions.approval-settings.reset',
-                    'store-requisitions.approval-settings.test-configuration',
-                    'store-requisitions.data',
-                    'store-requisitions.export',
-                    'store-requisitions.print',
-                    'store-issues.index',
-                    'store-issues.create',
-                    'store-issues.edit',
-                    'store-issues.destroy',
-                    'store-issues.show',
-                    'store-issues.store',
-                    'store-issues.update',
-                    'store-issues.data',
-                    'store-issues.export',
-                    'store-issues.print',
-                    'store-returns.index',
-                    'store-returns.create',
-                    'store-returns.edit',
-                    'store-returns.destroy',
-                    'store-returns.show',
-                    'store-returns.store',
-                    'store-returns.update',
-                    'store-returns.data',
-                    'store-returns.export',
-                    'store-returns.print',
-                ],
-            ],
+            // 'Store Requisitions' => [
+            //     'icon' => 'bx bx-package',
+            //     'visibleRoutes' => [
+            //         ['name' => 'Store Requisition Management', 'route' => 'store-requisitions.index'],
+            //     ],
+            //     'hiddenRoutes' => [
+            //         'store-requisitions.create',
+            //         'store-requisitions.edit',
+            //         'store-requisitions.destroy',
+            //         'store-requisitions.show',
+            //         'store-requisitions.store',
+            //         'store-requisitions.update',
+            //         'store-requisitions.approve',
+            //         'store-requisitions.approval-settings.index',
+            //         'store-requisitions.approval-settings.store',
+            //         'store-requisitions.approval-settings.reset',
+            //         'store-requisitions.approval-settings.test-configuration',
+            //         'store-requisitions.data',
+            //         'store-requisitions.export',
+            //         'store-requisitions.print',
+            //         'store-issues.index',
+            //         'store-issues.create',
+            //         'store-issues.edit',
+            //         'store-issues.destroy',
+            //         'store-issues.show',
+            //         'store-issues.store',
+            //         'store-issues.update',
+            //         'store-issues.data',
+            //         'store-issues.export',
+            //         'store-issues.print',
+            //         'store-returns.index',
+            //         'store-returns.create',
+            //         'store-returns.edit',
+            //         'store-returns.destroy',
+            //         'store-returns.show',
+            //         'store-returns.store',
+            //         'store-returns.update',
+            //         'store-returns.data',
+            //         'store-returns.export',
+            //         'store-returns.print',
+            //     ],
+            // ],
 
             'Sales' => [
                 'icon' => 'bx bx-shopping-bag',
@@ -186,33 +186,13 @@ class MenuSeeder extends Seeder
                 'hiddenRoutes' => [],
             ],
             
-            'Assets Management' => [
-                'icon' => 'bx bx-building',
-                'visibleRoutes' => [
-                    ['name' => 'Assets Management', 'route' => 'assets.index'],
-                ],
-                'hiddenRoutes' => [],
-            ],
-            'Loans Payable' => [
-                'icon' => 'bx bx-money',
-                'visibleRoutes' => [
-                    ['name' => 'Loan Management', 'route' => 'loans.index'],
-                ],
-                'hiddenRoutes' => [
-                    'loans.create',
-                    'loans.edit',
-                    'loans.destroy',
-                    'loans.show',
-                    'loans.store',
-                    'loans.update',
-                    'loans.disburse',
-                    'loans.payments.create',
-                    'loans.payments.store',
-                    'loans.schedule.generate',
-                    'loans.export.pdf',
-                    'loans.export.excel',
-                ],
-            ],
+            // 'Assets Management' => [
+            //     'icon' => 'bx bx-building',
+            //     'visibleRoutes' => [
+            //         ['name' => 'Assets Management', 'route' => 'assets.index'],
+            //     ],
+            //     'hiddenRoutes' => [],
+            // ],
 
             'Hospital' => [
                 'icon' => 'bx bx-plus-medical',
@@ -353,12 +333,32 @@ class MenuSeeder extends Seeder
         ];
 
         foreach ($entities as $parentName => $data) {
+            // Set permission name for parent menu
+            $permissionName = null;
+            if ($parentName === 'Hospital') {
+                $permissionName = 'view hospital management';
+            } elseif ($parentName === 'Dashboard') {
+                $permissionName = 'view dashboard';
+            } elseif ($parentName === 'Accounting') {
+                $permissionName = 'view accounting';
+            } elseif ($parentName === 'Inventory & Services') {
+                $permissionName = 'view inventory';
+            }
+            
             $parent = Menu::firstOrCreate([
                 'name' => $parentName,
                 'route' => null,
                 'parent_id' => null,
                 'icon' => $data['icon'],
+            ], [
+                'permission_name' => $permissionName,
             ]);
+            
+            // Update permission_name if it wasn't set during creation
+            if ($permissionName && $parent->permission_name !== $permissionName) {
+                $parent->permission_name = $permissionName;
+                $parent->save();
+            }
 
             $menuIds = [$parent->id];
 
