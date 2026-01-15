@@ -144,6 +144,187 @@
                                     </div>
                                 </div>
 
+                                <!-- Medicines Selection -->
+                                <div class="card mb-4">
+                                    <div class="card-header bg-danger text-white">
+                                        <h6 class="mb-0"><i class="bx bx-capsule me-2"></i>Medicines / Dawa</h6>
+                                    </div>
+                                    <div class="card-body">
+                                        <div class="alert alert-info">
+                                            <i class="bx bx-info-circle me-2"></i>
+                                            Select medicines to prescribe. Stock availability is shown for each medicine.
+                                        </div>
+                                        <div id="medicines-container">
+                                            <div class="medicine-item mb-3 p-3 border rounded">
+                                                <div class="row">
+                                                    <div class="col-md-6">
+                                                        <label class="form-label">Medicine</label>
+                                                        <select class="form-select medicine-select" name="medicines[0][product_id]" onchange="updateMedicineInfo(this, 0)">
+                                                            <option value="">Select Medicine...</option>
+                                                            @foreach($medicines as $medicine)
+                                                                <option value="{{ $medicine['id'] }}" 
+                                                                        data-price="{{ $medicine['unit_price'] }}"
+                                                                        data-stock="{{ $medicine['available_stock'] }}"
+                                                                        data-unit="{{ $medicine['unit_of_measure'] }}"
+                                                                        data-available="{{ $medicine['is_available'] ? '1' : '0' }}">
+                                                                    {{ $medicine['name'] }} ({{ $medicine['code'] }})
+                                                                    @if($medicine['is_available'])
+                                                                        - Stock: {{ $medicine['available_stock'] }} {{ $medicine['unit_of_measure'] }}
+                                                                    @else
+                                                                        - OUT OF STOCK
+                                                                    @endif
+                                                                </option>
+                                                            @endforeach
+                                                        </select>
+                                                        <small class="text-muted medicine-stock-info" id="stock-info-0"></small>
+                                                    </div>
+                                                    <div class="col-md-3">
+                                                        <label class="form-label">Quantity</label>
+                                                        <input type="number" class="form-control medicine-quantity" name="medicines[0][quantity]" value="1" min="1" onchange="calculateTotal()">
+                                                    </div>
+                                                    <div class="col-md-2">
+                                                        <label class="form-label">Price</label>
+                                                        <input type="text" class="form-control medicine-price" readonly value="0.00">
+                                                    </div>
+                                                    <div class="col-md-1">
+                                                        <label class="form-label">&nbsp;</label>
+                                                        <button type="button" class="btn btn-danger btn-sm w-100" onclick="removeMedicine(this)">
+                                                            <i class="bx bx-trash"></i>
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <button type="button" class="btn btn-sm btn-outline-primary" onclick="addMedicine()">
+                                            <i class="bx bx-plus me-1"></i>Add Medicine
+                                        </button>
+                                    </div>
+                                </div>
+
+                                <!-- Lab Tests Selection -->
+                                <div class="card mb-4">
+                                    <div class="card-header bg-info text-white">
+                                        <h6 class="mb-0"><i class="bx bx-test-tube me-2"></i>Lab Tests / Vipimo vya Lab</h6>
+                                    </div>
+                                    <div class="card-body">
+                                        <div class="row">
+                                            @foreach($labServices as $lab)
+                                                <div class="col-md-4 mb-2">
+                                                    <div class="form-check">
+                                                        <input class="form-check-input lab-test-checkbox" 
+                                                               type="checkbox" 
+                                                               name="lab_tests[{{ $loop->index }}][service_id]" 
+                                                               value="{{ $lab['id'] }}" 
+                                                               id="lab_{{ $lab['id'] }}"
+                                                               data-price="{{ $lab['unit_price'] }}"
+                                                               onchange="calculateTotal()">
+                                                        <label class="form-check-label" for="lab_{{ $lab['id'] }}">
+                                                            <strong>{{ $lab['name'] }}</strong>
+                                                            <br>
+                                                            <small class="text-muted">TZS {{ number_format($lab['unit_price'], 2) }}</small>
+                                                        </label>
+                                                    </div>
+                                                </div>
+                                            @endforeach
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- Ultrasound Services Selection -->
+                                <div class="card mb-4">
+                                    <div class="card-header bg-warning text-dark">
+                                        <h6 class="mb-0"><i class="bx bx-scan me-2"></i>Ultrasound Services / Huduma za Ultrasound</h6>
+                                    </div>
+                                    <div class="card-body">
+                                        <div class="row">
+                                            @foreach($ultrasoundServices as $ultrasound)
+                                                <div class="col-md-4 mb-2">
+                                                    <div class="form-check">
+                                                        <input class="form-check-input ultrasound-checkbox" 
+                                                               type="checkbox" 
+                                                               name="ultrasound_services[{{ $loop->index }}][service_id]" 
+                                                               value="{{ $ultrasound['id'] }}" 
+                                                               id="ultrasound_{{ $ultrasound['id'] }}"
+                                                               data-price="{{ $ultrasound['unit_price'] }}"
+                                                               onchange="calculateTotal()">
+                                                        <label class="form-check-label" for="ultrasound_{{ $ultrasound['id'] }}">
+                                                            <strong>{{ $ultrasound['name'] }}</strong>
+                                                            <br>
+                                                            <small class="text-muted">TZS {{ number_format($ultrasound['unit_price'], 2) }}</small>
+                                                        </label>
+                                                    </div>
+                                                </div>
+                                            @endforeach
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- Other Services Selection -->
+                                <div class="card mb-4">
+                                    <div class="card-header bg-success text-white">
+                                        <h6 class="mb-0"><i class="bx bx-list-ul me-2"></i>Other Services / Huduma Zingine</h6>
+                                    </div>
+                                    <div class="card-body">
+                                        <div class="row">
+                                            @foreach($otherServices as $service)
+                                                <div class="col-md-4 mb-2">
+                                                    <div class="form-check">
+                                                        <input class="form-check-input other-service-checkbox" 
+                                                               type="checkbox" 
+                                                               name="other_services[{{ $loop->index }}][service_id]" 
+                                                               value="{{ $service['id'] }}" 
+                                                               id="service_{{ $service['id'] }}"
+                                                               data-price="{{ $service['unit_price'] }}"
+                                                               onchange="calculateTotal()">
+                                                        <label class="form-check-label" for="service_{{ $service['id'] }}">
+                                                            <strong>{{ $service['name'] }}</strong>
+                                                            <br>
+                                                            <small class="text-muted">TZS {{ number_format($service['unit_price'], 2) }}</small>
+                                                        </label>
+                                                    </div>
+                                                </div>
+                                            @endforeach
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- Total Cost Summary -->
+                                <div class="card mb-4 border-primary">
+                                    <div class="card-header bg-primary text-white">
+                                        <h6 class="mb-0"><i class="bx bx-calculator me-2"></i>Total Cost Summary / Jumla ya Gharama</h6>
+                                    </div>
+                                    <div class="card-body">
+                                        <div class="row">
+                                            <div class="col-md-3">
+                                                <strong>Medicines:</strong>
+                                                <div class="h5 text-danger" id="medicines-total">TZS 0.00</div>
+                                            </div>
+                                            <div class="col-md-3">
+                                                <strong>Lab Tests:</strong>
+                                                <div class="h5 text-info" id="lab-total">TZS 0.00</div>
+                                            </div>
+                                            <div class="col-md-3">
+                                                <strong>Ultrasound:</strong>
+                                                <div class="h5 text-warning" id="ultrasound-total">TZS 0.00</div>
+                                            </div>
+                                            <div class="col-md-3">
+                                                <strong>Other Services:</strong>
+                                                <div class="h5 text-success" id="services-total">TZS 0.00</div>
+                                            </div>
+                                        </div>
+                                        <hr>
+                                        <div class="row">
+                                            <div class="col-md-12 text-end">
+                                                <h4 class="mb-0">
+                                                    <strong>Grand Total:</strong>
+                                                    <span class="text-primary" id="grand-total">TZS 0.00</span>
+                                                </h4>
+                                                <small class="text-muted">Bill will be created automatically when consultation is saved</small>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
                                 <!-- Notes -->
                                 <div class="card mb-4">
                                     <div class="card-header bg-secondary text-white">
@@ -204,4 +385,142 @@
             </div>
         </div>
     </div>
+
+    <script>
+        let medicineIndex = 1;
+
+        function addMedicine() {
+            const container = document.getElementById('medicines-container');
+            const newItem = document.createElement('div');
+            newItem.className = 'medicine-item mb-3 p-3 border rounded';
+            newItem.innerHTML = `
+                <div class="row">
+                    <div class="col-md-6">
+                        <label class="form-label">Medicine</label>
+                        <select class="form-select medicine-select" name="medicines[${medicineIndex}][product_id]" onchange="updateMedicineInfo(this, ${medicineIndex})">
+                            <option value="">Select Medicine...</option>
+                            @foreach($medicines as $medicine)
+                                <option value="{{ $medicine['id'] }}" 
+                                        data-price="{{ $medicine['unit_price'] }}"
+                                        data-stock="{{ $medicine['available_stock'] }}"
+                                        data-unit="{{ $medicine['unit_of_measure'] }}"
+                                        data-available="{{ $medicine['is_available'] ? '1' : '0' }}">
+                                    {{ $medicine['name'] }} ({{ $medicine['code'] }})
+                                    @if($medicine['is_available'])
+                                        - Stock: {{ $medicine['available_stock'] }} {{ $medicine['unit_of_measure'] }}
+                                    @else
+                                        - OUT OF STOCK
+                                    @endif
+                                </option>
+                            @endforeach
+                        </select>
+                        <small class="text-muted medicine-stock-info" id="stock-info-${medicineIndex}"></small>
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label">Quantity</label>
+                        <input type="number" class="form-control medicine-quantity" name="medicines[${medicineIndex}][quantity]" value="1" min="1" onchange="calculateTotal()">
+                    </div>
+                    <div class="col-md-2">
+                        <label class="form-label">Price</label>
+                        <input type="text" class="form-control medicine-price" readonly value="0.00">
+                    </div>
+                    <div class="col-md-1">
+                        <label class="form-label">&nbsp;</label>
+                        <button type="button" class="btn btn-danger btn-sm w-100" onclick="removeMedicine(this)">
+                            <i class="bx bx-trash"></i>
+                        </button>
+                    </div>
+                </div>
+            `;
+            container.appendChild(newItem);
+            medicineIndex++;
+        }
+
+        function removeMedicine(button) {
+            button.closest('.medicine-item').remove();
+            calculateTotal();
+        }
+
+        function updateMedicineInfo(select, index) {
+            const option = select.options[select.selectedIndex];
+            const price = parseFloat(option.getAttribute('data-price')) || 0;
+            const stock = parseFloat(option.getAttribute('data-stock')) || 0;
+            const unit = option.getAttribute('data-unit') || '';
+            const available = option.getAttribute('data-available') === '1';
+
+            const quantityInput = select.closest('.medicine-item').querySelector('.medicine-quantity');
+            const priceInput = select.closest('.medicine-item').querySelector('.medicine-price');
+            const stockInfo = document.getElementById(`stock-info-${index}`);
+
+            if (select.value) {
+                priceInput.value = price.toFixed(2);
+                if (available) {
+                    stockInfo.textContent = `Available: ${stock} ${unit}`;
+                    stockInfo.className = 'text-success';
+                    quantityInput.max = stock;
+                } else {
+                    stockInfo.textContent = 'OUT OF STOCK';
+                    stockInfo.className = 'text-danger';
+                    quantityInput.max = 0;
+                    quantityInput.value = 0;
+                }
+            } else {
+                priceInput.value = '0.00';
+                stockInfo.textContent = '';
+            }
+
+            calculateTotal();
+        }
+
+        function calculateTotal() {
+            let medicinesTotal = 0;
+            let labTotal = 0;
+            let ultrasoundTotal = 0;
+            let servicesTotal = 0;
+
+            // Calculate medicines total
+            document.querySelectorAll('.medicine-item').forEach(item => {
+                const select = item.querySelector('.medicine-select');
+                const quantityInput = item.querySelector('.medicine-quantity');
+                if (select.value && quantityInput.value) {
+                    const price = parseFloat(select.options[select.selectedIndex].getAttribute('data-price')) || 0;
+                    const quantity = parseFloat(quantityInput.value) || 0;
+                    medicinesTotal += price * quantity;
+                    
+                    // Update price display
+                    const priceInput = item.querySelector('.medicine-price');
+                    priceInput.value = (price * quantity).toFixed(2);
+                }
+            });
+
+            // Calculate lab tests total
+            document.querySelectorAll('.lab-test-checkbox:checked').forEach(checkbox => {
+                labTotal += parseFloat(checkbox.getAttribute('data-price')) || 0;
+            });
+
+            // Calculate ultrasound total
+            document.querySelectorAll('.ultrasound-checkbox:checked').forEach(checkbox => {
+                ultrasoundTotal += parseFloat(checkbox.getAttribute('data-price')) || 0;
+            });
+
+            // Calculate other services total
+            document.querySelectorAll('.other-service-checkbox:checked').forEach(checkbox => {
+                servicesTotal += parseFloat(checkbox.getAttribute('data-price')) || 0;
+            });
+
+            // Update display
+            document.getElementById('medicines-total').textContent = 'TZS ' + medicinesTotal.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+            document.getElementById('lab-total').textContent = 'TZS ' + labTotal.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+            document.getElementById('ultrasound-total').textContent = 'TZS ' + ultrasoundTotal.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+            document.getElementById('services-total').textContent = 'TZS ' + servicesTotal.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+            
+            const grandTotal = medicinesTotal + labTotal + ultrasoundTotal + servicesTotal;
+            document.getElementById('grand-total').textContent = 'TZS ' + grandTotal.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+        }
+
+        // Initialize on page load
+        document.addEventListener('DOMContentLoaded', function() {
+            calculateTotal();
+        });
+    </script>
 @endsection
