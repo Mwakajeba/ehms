@@ -190,11 +190,18 @@
                                                     <td>{{ $labDept && $labDept->service_started_at ? $labDept->service_started_at->format('H:i') : 'N/A' }}</td>
                                                     <td>{{ $serviceTime }}</td>
                                                     <td>
-                                                        <span class="badge bg-info">{{ $visit->labResults->count() }} test(s)</span>
+                                                        @php
+                                                            $testsCount = $visit->lab_tests_count ?? 0;
+                                                            $resultsCount = $visit->labResults->count();
+                                                        @endphp
+                                                        <span class="badge bg-info">{{ $testsCount }} test(s)</span>
+                                                        @if($resultsCount > 0)
+                                                            <br><small class="text-muted">{{ $resultsCount }} result(s) recorded</small>
+                                                        @endif
                                                     </td>
                                                     <td>
                                                         <a href="{{ route('hospital.lab.create', $visit->id) }}" class="btn btn-sm btn-info">
-                                                            <i class="bx bx-plus me-1"></i>Add Test
+                                                            <i class="bx bx-edit me-1"></i>Add Results
                                                         </a>
                                                     </td>
                                                 </tr>

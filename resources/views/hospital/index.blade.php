@@ -94,7 +94,7 @@
                                 <!-- Triage -->
                                 <div class="col-md-6 col-lg-4 mb-4">
                                     <div class="card module-card h-100">
-                                        <div class="count-badge bg-info">{{ number_format($stats['visits']['pending'] ?? 0) }}</div>
+                                        <div class="count-badge bg-info">{{ number_format($stats['visits']['triage_pending'] ?? 0) }}</div>
                                         <div class="card-body text-center">
                                             <div class="mb-3">
                                                 <i class="bx bx-pulse text-info" style="font-size: 3rem;"></i>
@@ -111,7 +111,7 @@
                                 <!-- Doctor -->
                                 <div class="col-md-6 col-lg-4 mb-4">
                                     <div class="card module-card h-100">
-                                        <div class="count-badge bg-warning">{{ number_format($stats['visits']['in_progress'] ?? 0) }}</div>
+                                        <div class="count-badge bg-warning">{{ number_format($stats['visits']['doctor_pending'] ?? 0) }}</div>
                                         <div class="card-body text-center">
                                             <div class="mb-3">
                                                 <i class="bx bx-user-md text-warning" style="font-size: 3rem;"></i>
@@ -128,7 +128,7 @@
                                 <!-- Lab -->
                                 <div class="col-md-6 col-lg-4 mb-4">
                                     <div class="card module-card h-100">
-                                        <div class="count-badge bg-danger">-</div>
+                                        <div class="count-badge bg-danger">{{ number_format($stats['visits']['lab_pending'] ?? 0) }}</div>
                                         <div class="card-body text-center">
                                             <div class="mb-3">
                                                 <i class="bx bx-test-tube text-danger" style="font-size: 3rem;"></i>
@@ -162,7 +162,7 @@
                                 <!-- Pharmacy -->
                                 <div class="col-md-6 col-lg-4 mb-4">
                                     <div class="card module-card h-100">
-                                        <div class="count-badge bg-primary">-</div>
+                                        <div class="count-badge bg-primary">{{ number_format($stats['visits']['pharmacy_pending'] ?? 0) }}</div>
                                         <div class="card-body text-center">
                                             <div class="mb-3">
                                                 <i class="bx bx-capsule text-primary" style="font-size: 3rem;"></i>

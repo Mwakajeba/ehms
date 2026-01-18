@@ -931,6 +931,13 @@ Route::prefix('hospital')->name('hospital.')->middleware(['auth', 'company.scope
     Route::prefix('doctor')->name('doctor.')->group(function () {
         Route::get('/', [App\Http\Controllers\Hospital\DoctorController::class, 'index'])->name('index');
         Route::get('/visits/{visitId}/create', [App\Http\Controllers\Hospital\DoctorController::class, 'create'])->name('create');
+        Route::post('/visits/{visitId}/store-pre-bill', [App\Http\Controllers\Hospital\DoctorController::class, 'storePreBill'])->name('store-pre-bill');
+        Route::get('/visits/{visitId}/create-lab-bill', [App\Http\Controllers\Hospital\DoctorController::class, 'createLabBill'])->name('create-lab-bill');
+        Route::post('/visits/{visitId}/store-lab-bill', [App\Http\Controllers\Hospital\DoctorController::class, 'storeLabBill'])->name('store-lab-bill');
+        Route::get('/visits/{visitId}/create-diagnosis', [App\Http\Controllers\Hospital\DoctorController::class, 'createDiagnosis'])->name('create-diagnosis');
+        Route::post('/visits/{visitId}/store-diagnosis', [App\Http\Controllers\Hospital\DoctorController::class, 'storeDiagnosis'])->name('store-diagnosis');
+        Route::get('/visits/{visitId}/create-pharmacy-bill', [App\Http\Controllers\Hospital\DoctorController::class, 'createPharmacyBill'])->name('create-pharmacy-bill');
+        Route::post('/visits/{visitId}/store-pharmacy-bill', [App\Http\Controllers\Hospital\DoctorController::class, 'storePharmacyBill'])->name('store-pharmacy-bill');
         Route::post('/visits/{visitId}', [App\Http\Controllers\Hospital\DoctorController::class, 'store'])->name('store');
         Route::get('/visits/{visitId}', [App\Http\Controllers\Hospital\DoctorController::class, 'show'])->name('show');
         Route::post('/visits/{visitId}/start-service', [App\Http\Controllers\Hospital\DoctorController::class, 'startService'])->name('start-service');

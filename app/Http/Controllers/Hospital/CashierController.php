@@ -8,6 +8,8 @@ use App\Models\Hospital\VisitBill;
 use App\Models\Hospital\VisitBillItem;
 use App\Models\Hospital\VisitPayment;
 use App\Models\Hospital\Patient;
+use App\Models\Sales\SalesInvoice;
+use App\Models\Receipt;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
@@ -24,30 +26,31 @@ class CashierController extends Controller
         $companyId = $user->company_id;
         $branchId = session('branch_id') ?? $user->branch_id;
 
-        // Get pending bills
-        $pendingBills = VisitBill::with(['patient', 'visit'])
+        // Get pending sales invoices (pre-billing bills)
+        // Sales invoices with status 'draft' or 'sent' are pending payment
+        $pendingInvoices = SalesInvoice::with(['customer', 'items'])
             ->where('company_id', $companyId)
             ->where('branch_id', $branchId)
-            ->where('payment_status', 'pending')
+            ->whereIn('status', ['draft', 'sent']) // Pending payment
             ->orderBy('created_at', 'desc')
             ->get();
 
         // Get statistics
         $stats = [
-            'pending_bills' => $pendingBills->count(),
-            'pending_amount' => $pendingBills->sum('total'),
-            'paid_today' => VisitBill::where('company_id', $companyId)
+            'pending_bills' => $pendingInvoices->count(),
+            'pending_amount' => $pendingInvoices->sum('balance_due'),
+            'paid_today' => SalesInvoice::where('company_id', $companyId)
                 ->where('branch_id', $branchId)
-                ->where('payment_status', 'paid')
+                ->where('status', 'paid')
                 ->whereDate('created_at', today())
                 ->count(),
-            'revenue_today' => VisitPayment::where('company_id', $companyId)
-                ->where('branch_id', $branchId)
-                ->whereDate('payment_date', today())
+            'revenue_today' => Receipt::where('branch_id', $branchId)
+                ->where('reference_type', 'sales_invoice')
+                ->whereDate('date', today())
                 ->sum('amount'),
         ];
 
-        return view('hospital.cashier.index', compact('pendingBills', 'stats'));
+        return view('hospital.cashier.index', compact('pendingInvoices', 'stats'));
     }
 
     /**
@@ -177,7 +180,7 @@ class CashierController extends Controller
     }
 
     /**
-     * Search patients/bills
+     * Search sales invoices
      */
     public function search(Request $request)
     {
@@ -186,22 +189,37 @@ class CashierController extends Controller
         $companyId = $user->company_id;
         $branchId = session('branch_id') ?? $user->branch_id;
 
-        // Search bills
-        $bills = VisitBill::with(['patient', 'visit'])
+        // Search sales invoices
+        $invoices = SalesInvoice::with(['customer'])
             ->where('company_id', $companyId)
             ->where('branch_id', $branchId)
             ->where(function ($q) use ($term) {
-                $q->where('bill_number', 'like', "%{$term}%")
-                    ->orWhereHas('patient', function ($query) use ($term) {
-                        $query->where('mrn', 'like', "%{$term}%")
-                            ->orWhere('first_name', 'like', "%{$term}%")
-                            ->orWhere('last_name', 'like', "%{$term}%")
-                            ->orWhere('phone', 'like', "%{$term}%");
+                $q->where('invoice_number', 'like', "%{$term}%")
+                    ->orWhereHas('customer', function ($query) use ($term) {
+                        $query->where('name', 'like', "%{$term}%")
+                            ->orWhere('phone', 'like', "%{$term}%")
+                            ->orWhere('email', 'like', "%{$term}%")
+                            ->orWhere('customerNo', 'like', "%{$term}%");
                     });
             })
             ->limit(20)
-            ->get();
+            ->get()
+            ->map(function ($invoice) {
+                return [
+                    'id' => $invoice->id,
+                    'encoded_id' => $invoice->encoded_id,
+                    'invoice_number' => $invoice->invoice_number,
+                    'customer' => [
+                        'name' => $invoice->customer->name ?? 'N/A',
+                        'phone' => $invoice->customer->phone ?? 'N/A',
+                    ],
+                    'total_amount' => $invoice->total_amount,
+                    'paid_amount' => $invoice->paid_amount,
+                    'balance_due' => $invoice->balance_due,
+                    'status' => $invoice->status,
+                ];
+            });
 
-        return response()->json($bills);
+        return response()->json($invoices);
     }
 }

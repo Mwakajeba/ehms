@@ -103,6 +103,11 @@ class Visit extends Model
         return $this->hasMany(RCHRecord::class);
     }
 
+    public function diagnosisExplanation()
+    {
+        return $this->hasOne(DiagnosisExplanation::class);
+    }
+
     // Scopes
     public function scopePending($query)
     {

@@ -28,7 +28,7 @@
                         <div class="card-body">
                             <div class="d-flex align-items-center">
                                 <div class="flex-grow-1">
-                                    <h6 class="text-muted mb-0">Pending Bills</h6>
+                                    <h6 class="text-muted mb-0">Pending Invoices</h6>
                                     <h4 class="mb-0">{{ $stats['pending_bills'] }}</h4>
                                 </div>
                                 <div class="text-primary" style="font-size: 2rem;">
@@ -91,7 +91,7 @@
                     <div class="card">
                         <div class="card-body">
                             <div class="input-group">
-                                <input type="text" class="form-control" id="searchTerm" placeholder="Search by Bill #, Patient MRN, Name, or Phone...">
+                                <input type="text" class="form-control" id="searchTerm" placeholder="Search by Invoice #, Customer Name, Phone, or Email...">
                                 <button class="btn btn-primary" type="button" onclick="searchBills()">
                                     <i class="bx bx-search me-1"></i>Search
                                 </button>
@@ -108,21 +108,20 @@
                     <div class="card">
                         <div class="card-header">
                             <h5 class="card-title mb-0">
-                                <i class="bx bx-list-ul me-2"></i>Pending Bills
-                                <span class="badge bg-warning ms-2">{{ $pendingBills->count() }}</span>
+                                <i class="bx bx-list-ul me-2"></i>Pending Bills (Sales Invoices)
+                                <span class="badge bg-warning ms-2">{{ $pendingInvoices->count() }}</span>
                             </h5>
                         </div>
                         <div class="card-body">
-                            @if($pendingBills->count() > 0)
+                            @if($pendingInvoices->count() > 0)
                                 <div class="table-responsive">
                                     <table class="table table-hover">
                                         <thead>
                                             <tr>
-                                                <th>Bill #</th>
-                                                <th>Patient</th>
-                                                <th>MRN</th>
-                                                <th>Visit #</th>
-                                                <th>Bill Type</th>
+                                                <th>Invoice #</th>
+                                                <th>Customer/Patient</th>
+                                                <th>Phone</th>
+                                                <th>Invoice Date</th>
                                                 <th>Total</th>
                                                 <th>Paid</th>
                                                 <th>Balance</th>
@@ -131,41 +130,37 @@
                                             </tr>
                                         </thead>
                                         <tbody>
-                                            @foreach($pendingBills as $bill)
+                                            @foreach($pendingInvoices as $invoice)
                                                 <tr>
-                                                    <td><strong>{{ $bill->bill_number }}</strong></td>
-                                                    <td>{{ $bill->patient->full_name }}</td>
-                                                    <td>{{ $bill->patient->mrn }}</td>
-                                                    <td>{{ $bill->visit->visit_number ?? 'N/A' }}</td>
+                                                    <td><strong>{{ $invoice->invoice_number }}</strong></td>
+                                                    <td>{{ $invoice->customer->name }}</td>
+                                                    <td>{{ $invoice->customer->phone ?? 'N/A' }}</td>
+                                                    <td>{{ $invoice->invoice_date->format('d M Y') }}</td>
+                                                    <td>{{ number_format($invoice->total_amount, 2) }} TZS</td>
+                                                    <td>{{ number_format($invoice->paid_amount, 2) }} TZS</td>
                                                     <td>
-                                                        <span class="badge bg-info">
-                                                            {{ ucfirst(str_replace('_', ' ', $bill->bill_type)) }}
-                                                        </span>
-                                                    </td>
-                                                    <td>{{ number_format($bill->total, 2) }} TZS</td>
-                                                    <td>{{ number_format($bill->paid, 2) }} TZS</td>
-                                                    <td>
-                                                        <strong class="{{ $bill->balance > 0 ? 'text-danger' : 'text-success' }}">
-                                                            {{ number_format($bill->balance, 2) }} TZS
+                                                        <strong class="{{ $invoice->balance_due > 0 ? 'text-danger' : 'text-success' }}">
+                                                            {{ number_format($invoice->balance_due, 2) }} TZS
                                                         </strong>
                                                     </td>
                                                     <td>
                                                         @php
                                                             $statusColors = [
-                                                                'pending' => 'warning',
+                                                                'draft' => 'secondary',
+                                                                'sent' => 'warning',
                                                                 'partial' => 'info',
                                                                 'paid' => 'success',
                                                                 'cancelled' => 'danger'
                                                             ];
-                                                            $color = $statusColors[$bill->payment_status] ?? 'secondary';
+                                                            $color = $statusColors[$invoice->status] ?? 'secondary';
                                                         @endphp
                                                         <span class="badge bg-{{ $color }}">
-                                                            {{ ucfirst($bill->payment_status) }}
+                                                            {{ ucfirst($invoice->status) }}
                                                         </span>
                                                     </td>
                                                     <td>
-                                                        <a href="{{ route('hospital.cashier.bills.show', $bill->id) }}" class="btn btn-sm btn-info">
-                                                            <i class="bx bx-show me-1"></i>View
+                                                        <a href="{{ route('sales.invoices.show', $invoice->encoded_id) }}" class="btn btn-sm btn-info">
+                                                            <i class="bx bx-show me-1"></i>View & Pay
                                                         </a>
                                                     </td>
                                                 </tr>
@@ -203,26 +198,26 @@ function searchBills() {
         .then(data => {
             if (data.length > 0) {
                 let html = '<div class="list-group">';
-                data.forEach(bill => {
+                data.forEach(invoice => {
                     html += `
-                        <a href="{{ url('hospital/cashier/bills') }}/${bill.id}" class="list-group-item list-group-item-action">
+                        <a href="{{ url('sales/invoices') }}/${invoice.encoded_id}" class="list-group-item list-group-item-action">
                             <div class="d-flex w-100 justify-content-between">
-                                <h6 class="mb-1">${bill.bill_number} - ${bill.patient.first_name} ${bill.patient.last_name}</h6>
-                                <small>${bill.patient.mrn}</small>
+                                <h6 class="mb-1">${invoice.invoice_number} - ${invoice.customer.name}</h6>
+                                <small>${invoice.customer.phone || 'N/A'}</small>
                             </div>
-                            <p class="mb-1">Balance: ${parseFloat(bill.balance).toFixed(2)} TZS</p>
+                            <p class="mb-1">Balance: ${parseFloat(invoice.balance_due).toFixed(2)} TZS | Status: ${invoice.status}</p>
                         </a>
                     `;
                 });
                 html += '</div>';
                 resultsDiv.innerHTML = html;
             } else {
-                resultsDiv.innerHTML = '<p class="text-muted">No bills found.</p>';
+                resultsDiv.innerHTML = '<p class="text-muted">No invoices found.</p>';
             }
         })
         .catch(error => {
             console.error('Error:', error);
-            resultsDiv.innerHTML = '<p class="text-danger">Error searching bills.</p>';
+            resultsDiv.innerHTML = '<p class="text-danger">Error searching invoices.</p>';
         });
 }
 

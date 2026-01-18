@@ -8,6 +8,10 @@ use App\Models\Hospital\VisitDepartment;
 use App\Models\Hospital\LabResult;
 use App\Models\Hospital\VisitBill;
 use App\Models\Hospital\VisitBillItem;
+use App\Models\Hospital\HospitalDepartment;
+use App\Models\Sales\SalesInvoice;
+use App\Models\Sales\SalesInvoiceItem;
+use App\Models\Customer;
 use App\Models\Inventory\Item;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -24,7 +28,7 @@ class LabController extends Controller
         $companyId = $user->company_id;
         $branchId = session('branch_id') ?? $user->branch_id;
 
-        // Get visits waiting for lab (bills must be cleared)
+        // Get visits waiting for lab (bills must be cleared OR paid SalesInvoice)
         $waitingVisits = Visit::with(['patient', 'visitDepartments.department', 'bills'])
             ->where('company_id', $companyId)
             ->where('branch_id', $branchId)
@@ -33,8 +37,26 @@ class LabController extends Controller
                     $query->where('type', 'lab');
                 })->where('status', 'waiting');
             })
-            ->whereHas('bills', function ($q) {
-                $q->where('clearance_status', 'cleared');
+            ->where(function ($query) use ($companyId, $branchId) {
+                // Either has cleared VisitBill (old flow)
+                $query->whereHas('bills', function ($q) {
+                    $q->where('clearance_status', 'cleared');
+                })
+                // OR has Customer with paid SalesInvoice matching patient (new pre-billing flow)
+                ->orWhereExists(function ($subQuery) use ($companyId, $branchId) {
+                    $subQuery->select(DB::raw(1))
+                        ->from('sales_invoices')
+                        ->join('customers', 'sales_invoices.customer_id', '=', 'customers.id')
+                        ->join('patients', 'patients.id', '=', 'visits.patient_id')
+                        ->where('sales_invoices.company_id', $companyId)
+                        ->where('sales_invoices.branch_id', $branchId)
+                        ->where('sales_invoices.status', 'paid')
+                        ->where(function ($q) {
+                            $q->whereColumn('customers.phone', 'patients.phone')
+                                ->orWhereColumn('customers.email', 'patients.email')
+                                ->orWhereColumn('customers.name', DB::raw("CONCAT(patients.first_name, ' ', patients.last_name)"));
+                        });
+                });
             })
             ->orderBy('visit_date', 'asc')
             ->get();
@@ -50,6 +72,41 @@ class LabController extends Controller
             })
             ->orderBy('visit_date', 'asc')
             ->get();
+        
+        // For each visit, get lab tests count from SalesInvoice
+        foreach ($inServiceVisits as $visit) {
+            $patient = $visit->patient;
+            if ($patient) {
+                $customer = Customer::where('company_id', $patient->company_id)
+                    ->where(function ($q) use ($patient) {
+                        if ($patient->phone) {
+                            $q->where('phone', $patient->phone);
+                        }
+                        if ($patient->email) {
+                            $q->orWhere('email', $patient->email);
+                        }
+                        $q->orWhere('name', $patient->full_name);
+                    })
+                    ->first();
+                
+                if ($customer) {
+                    $labInvoice = SalesInvoice::where('customer_id', $customer->id)
+                        ->where('company_id', $patient->company_id)
+                        ->where('branch_id', $patient->branch_id)
+                        ->where('status', 'paid')
+                        ->where('notes', 'like', "%Lab test bill for Visit #{$visit->visit_number}%")
+                        ->withCount('items')
+                        ->first();
+                    
+                    // Add lab tests count to visit (for display in view)
+                    $visit->lab_tests_count = $labInvoice ? $labInvoice->items_count : 0;
+                } else {
+                    $visit->lab_tests_count = 0;
+                }
+            } else {
+                $visit->lab_tests_count = 0;
+            }
+        }
 
         // Get ready results (for printing)
         $readyResults = LabResult::with(['patient', 'visit'])
@@ -86,21 +143,56 @@ class LabController extends Controller
             abort(403, 'Unauthorized access to visit.');
         }
 
-        // Check if bill is cleared
+        // Check if bill is cleared (VisitBill) OR has paid SalesInvoice (pre-billing)
         $hasClearedBill = $visit->bills()->where('clearance_status', 'cleared')->exists();
-        if (!$hasClearedBill) {
+        
+        // Check if patient has paid SalesInvoice (match Customer by name/phone/email)
+        $patient = $visit->patient;
+        $hasPaidInvoice = false;
+        $labInvoice = null;
+        $labInvoiceItems = collect();
+        
+        if ($patient) {
+            $customer = Customer::where('company_id', $patient->company_id)
+                ->where(function ($q) use ($patient) {
+                    if ($patient->phone) {
+                        $q->where('phone', $patient->phone);
+                    }
+                    if ($patient->email) {
+                        $q->orWhere('email', $patient->email);
+                    }
+                    $q->orWhere('name', $patient->full_name);
+                })
+                ->first();
+            
+            if ($customer) {
+                // Get paid SalesInvoice for lab tests (check notes for visit number)
+                $labInvoice = SalesInvoice::where('customer_id', $customer->id)
+                    ->where('company_id', $patient->company_id)
+                    ->where('branch_id', $patient->branch_id)
+                    ->where('status', 'paid')
+                    ->where('notes', 'like', "%Lab test bill for Visit #{$visit->visit_number}%")
+                    ->with(['items.inventoryItem'])
+                    ->first();
+                
+                if ($labInvoice) {
+                    $hasPaidInvoice = true;
+                    $labInvoiceItems = $labInvoice->items;
+                }
+            }
+        }
+        
+        if (!$hasClearedBill && !$hasPaidInvoice) {
             return redirect()->route('hospital.lab.index')
-                ->withErrors(['error' => 'Patient bill must be cleared before lab tests.']);
+                ->withErrors(['error' => 'Patient bill must be cleared or paid before lab tests.']);
         }
 
-        // Get lab test services from inventory_items
-        $labTests = Item::where('company_id', Auth::user()->company_id)
-            ->where('item_type', 'service')
-            ->where('is_active', true)
-            ->orderBy('name')
-            ->get();
+        // Get existing lab results for this visit
+        $existingResults = LabResult::where('visit_id', $visit->id)
+            ->get()
+            ->keyBy('service_id'); // Key by service_id for easy lookup
 
-        return view('hospital.lab.create', compact('visit', 'labTests'));
+        return view('hospital.lab.create', compact('visit', 'labInvoice', 'labInvoiceItems', 'existingResults'));
     }
 
     /**
@@ -116,14 +208,15 @@ class LabController extends Controller
         }
 
         $validated = $request->validate([
-            'service_id' => 'nullable|exists:inventory_items,id',
-            'test_name' => 'required|string|max:255',
-            'result_value' => 'nullable|string',
-            'unit' => 'nullable|string|max:50',
-            'reference_range' => 'nullable|string|max:255',
-            'status' => 'nullable|in:normal,abnormal,critical',
-            'notes' => 'nullable|string',
-            'result_status' => 'required|in:pending,ready',
+            'results' => 'required|array|min:1',
+            'results.*.service_id' => 'required|exists:inventory_items,id',
+            'results.*.test_name' => 'required|string|max:255',
+            'results.*.result_value' => 'nullable|string',
+            'results.*.unit' => 'nullable|string|max:50',
+            'results.*.reference_range' => 'nullable|string|max:255',
+            'results.*.status' => 'nullable|in:normal,abnormal,critical',
+            'results.*.notes' => 'nullable|string',
+            'results.*.result_status' => 'required|in:pending,ready',
         ]);
 
         try {
@@ -133,90 +226,68 @@ class LabController extends Controller
             $companyId = $user->company_id;
             $branchId = session('branch_id') ?? $user->branch_id;
 
-            // Generate result number
-            $resultNumber = 'LAB-' . now()->format('Ymd') . '-' . str_pad(LabResult::whereDate('created_at', today())->count() + 1, 4, '0', STR_PAD_LEFT);
-
-            // Create lab result
-            $labResult = LabResult::create([
-                'result_number' => $resultNumber,
-                'visit_id' => $visit->id,
-                'patient_id' => $visit->patient_id,
-                'service_id' => $validated['service_id'] ?? null,
-                'test_name' => $validated['test_name'],
-                'result_value' => $validated['result_value'] ?? null,
-                'unit' => $validated['unit'] ?? null,
-                'reference_range' => $validated['reference_range'] ?? null,
-                'status' => $validated['status'] ?? null,
-                'notes' => $validated['notes'] ?? null,
-                'result_status' => $validated['result_status'],
-                'completed_at' => $validated['result_status'] === 'ready' ? now() : null,
-                'performed_by' => $user->id,
-                'company_id' => $companyId,
-                'branch_id' => $branchId,
-            ]);
-
-            // Auto-create bill item if service_id is provided
-            if ($validated['service_id']) {
-                $service = Item::find($validated['service_id']);
-                if ($service && $service->item_type === 'service') {
-                    // Get or create a final bill for this visit
-                    $finalBill = VisitBill::where('visit_id', $visit->id)
-                        ->where('bill_type', 'final')
-                        ->first();
-
-                    if (!$finalBill) {
-                        // Create final bill if it doesn't exist
-                        $billNumber = 'BILL-' . now()->format('Ymd') . '-' . str_pad(VisitBill::whereDate('created_at', today())->count() + 1, 4, '0', STR_PAD_LEFT);
-                        
-                        $finalBill = VisitBill::create([
-                            'bill_number' => $billNumber,
-                            'visit_id' => $visit->id,
-                            'patient_id' => $visit->patient_id,
-                            'bill_type' => 'final',
-                            'subtotal' => 0,
-                            'discount' => 0,
-                            'tax' => 0,
-                            'total' => 0,
-                            'paid' => 0,
-                            'balance' => 0,
-                            'payment_status' => 'pending',
-                            'clearance_status' => 'pending',
-                            'company_id' => $companyId,
-                            'branch_id' => $branchId,
-                            'created_by' => $user->id,
-                        ]);
+            // Create lab results for each test
+            $allReady = true;
+            $resultCounter = LabResult::whereDate('created_at', today())->count();
+            
+            foreach ($validated['results'] as $resultData) {
+                if (empty($resultData['service_id']) || empty($resultData['test_name'])) {
+                    continue; // Skip empty results
+                }
+                
+                // Check if result already exists for this service
+                $existingResult = LabResult::where('visit_id', $visit->id)
+                    ->where('service_id', $resultData['service_id'])
+                    ->first();
+                
+                if ($existingResult) {
+                    // Update existing result
+                    $existingResult->update([
+                        'test_name' => $resultData['test_name'],
+                        'result_value' => $resultData['result_value'] ?? null,
+                        'unit' => $resultData['unit'] ?? null,
+                        'reference_range' => $resultData['reference_range'] ?? null,
+                        'status' => $resultData['status'] ?? null,
+                        'notes' => $resultData['notes'] ?? null,
+                        'result_status' => $resultData['result_status'],
+                        'completed_at' => $resultData['result_status'] === 'ready' ? now() : null,
+                        'performed_by' => $user->id,
+                    ]);
+                    
+                    if ($resultData['result_status'] !== 'ready') {
+                        $allReady = false;
                     }
-
-                    // Check if this service is already in the bill
-                    $existingItem = \App\Models\Hospital\VisitBillItem::where('bill_id', $finalBill->id)
-                        ->where('service_id', $service->id)
-                        ->first();
-
-                    if (!$existingItem) {
-                        // Add service to bill
-                        $itemTotal = $service->unit_price;
-                        
-                        \App\Models\Hospital\VisitBillItem::create([
-                            'bill_id' => $finalBill->id,
-                            'item_type' => 'service',
-                            'service_id' => $service->id,
-                            'item_name' => $service->name . ' - ' . $validated['test_name'],
-                            'quantity' => 1,
-                            'unit_price' => $service->unit_price,
-                            'total' => $itemTotal,
-                        ]);
-
-                        // Update bill totals
-                        $finalBill->subtotal = $finalBill->items->sum('total');
-                        $finalBill->total = $finalBill->subtotal - $finalBill->discount + $finalBill->tax;
-                        $finalBill->balance = $finalBill->total - $finalBill->paid;
-                        $finalBill->save();
+                } else {
+                    // Create new result
+                    $resultCounter++;
+                    $resultNumber = 'LAB-' . now()->format('Ymd') . '-' . str_pad($resultCounter, 4, '0', STR_PAD_LEFT);
+                    
+                    LabResult::create([
+                        'result_number' => $resultNumber,
+                        'visit_id' => $visit->id,
+                        'patient_id' => $visit->patient_id,
+                        'service_id' => $resultData['service_id'],
+                        'test_name' => $resultData['test_name'],
+                        'result_value' => $resultData['result_value'] ?? null,
+                        'unit' => $resultData['unit'] ?? null,
+                        'reference_range' => $resultData['reference_range'] ?? null,
+                        'status' => $resultData['status'] ?? null,
+                        'notes' => $resultData['notes'] ?? null,
+                        'result_status' => $resultData['result_status'],
+                        'completed_at' => $resultData['result_status'] === 'ready' ? now() : null,
+                        'performed_by' => $user->id,
+                        'company_id' => $companyId,
+                        'branch_id' => $branchId,
+                    ]);
+                    
+                    if ($resultData['result_status'] !== 'ready') {
+                        $allReady = false;
                     }
                 }
             }
 
-            // Update lab visit department status to completed if result is ready
-            if ($validated['result_status'] === 'ready') {
+            // Update lab visit department status to completed if all results are ready
+            if ($allReady) {
                 $labDept = $visit->visitDepartments()
                     ->whereHas('department', function ($q) {
                         $q->where('type', 'lab');
@@ -233,8 +304,41 @@ class LabController extends Controller
 
             DB::commit();
 
-            return redirect()->route('hospital.lab.show', $labResult->id)
-                ->with('success', 'Lab result recorded successfully.');
+            // Route patient back to doctor if all results are ready
+            if ($allReady) {
+                $doctorDept = HospitalDepartment::where('company_id', $companyId)
+                    ->where('type', 'doctor')
+                    ->first();
+                
+                if ($doctorDept) {
+                    // Check if doctor department already assigned
+                    $existingDept = $visit->visitDepartments()
+                        ->where('department_id', $doctorDept->id)
+                        ->first();
+                    
+                    if (!$existingDept) {
+                        $maxSequence = $visit->visitDepartments()->max('sequence') ?? 0;
+                        
+                        VisitDepartment::create([
+                            'visit_id' => $visit->id,
+                            'department_id' => $doctorDept->id,
+                            'status' => 'waiting',
+                            'waiting_started_at' => now(),
+                            'sequence' => $maxSequence + 1,
+                        ]);
+                    } else {
+                        // Reset to waiting if already exists
+                        $existingDept->status = 'waiting';
+                        $existingDept->waiting_started_at = now();
+                        $existingDept->save();
+                    }
+                }
+            }
+            
+            DB::commit();
+            
+            return redirect()->route('hospital.lab.index')
+                ->with('success', 'Lab results recorded successfully.' . ($allReady ? ' Patient has been sent back to doctor.' : ''));
         } catch (\Exception $e) {
             DB::rollBack();
             return back()->withInput()->withErrors(['error' => 'Failed to record lab result: ' . $e->getMessage()]);
