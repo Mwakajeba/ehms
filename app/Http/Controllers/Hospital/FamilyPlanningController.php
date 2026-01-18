@@ -5,19 +5,17 @@ namespace App\Http\Controllers\Hospital;
 use App\Http\Controllers\Controller;
 use App\Models\Hospital\Visit;
 use App\Models\Hospital\VisitDepartment;
-use App\Models\Hospital\DentalRecord;
-use App\Models\Inventory\Item;
+use App\Models\Hospital\FamilyPlanningRecord;
 use App\Models\Customer;
 use App\Models\Sales\SalesInvoice;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Storage;
 
-class DentalController extends Controller
+class FamilyPlanningController extends Controller
 {
     /**
-     * Display dental dashboard
+     * Display family planning dashboard
      */
     public function index()
     {
@@ -25,13 +23,13 @@ class DentalController extends Controller
         $companyId = $user->company_id;
         $branchId = session('branch_id') ?? $user->branch_id;
 
-        // Get visits waiting for dental (bills must be cleared OR paid SalesInvoice)
+        // Get visits waiting for family planning (bills must be cleared OR paid SalesInvoice for family planning)
         $waitingVisits = Visit::with(['patient', 'visitDepartments.department', 'bills'])
             ->where('company_id', $companyId)
             ->where('branch_id', $branchId)
             ->whereHas('visitDepartments', function ($q) {
                 $q->whereHas('department', function ($query) {
-                    $query->where('type', 'dental');
+                    $query->where('type', 'family_planning');
                 })->where('status', 'waiting');
             })
             ->where(function ($query) use ($companyId, $branchId) {
@@ -39,7 +37,7 @@ class DentalController extends Controller
                 $query->whereHas('bills', function ($q) {
                     $q->where('clearance_status', 'cleared');
                 })
-                // OR has Customer with paid SalesInvoice matching patient (new pre-billing flow)
+                // OR has Customer with paid SalesInvoice for family planning matching patient (new pre-billing flow)
                 ->orWhereExists(function ($subQuery) use ($companyId, $branchId) {
                     $subQuery->select(DB::raw(1))
                         ->from('sales_invoices')
@@ -48,6 +46,7 @@ class DentalController extends Controller
                         ->where('sales_invoices.company_id', $companyId)
                         ->where('sales_invoices.branch_id', $branchId)
                         ->where('sales_invoices.status', 'paid')
+                        ->where('sales_invoices.notes', 'like', '%Family Planning bill for Visit #%')
                         ->where(function ($q) {
                             $q->whereColumn('customers.phone', 'patients.phone')
                                 ->orWhereColumn('customers.email', 'patients.email')
@@ -58,27 +57,27 @@ class DentalController extends Controller
             ->orderBy('visit_date', 'asc')
             ->get();
 
-        // Get visits in service at dental
-        $inServiceVisits = Visit::with(['patient', 'visitDepartments.department', 'dentalRecords'])
+        // Get visits in service at family planning
+        $inServiceVisits = Visit::with(['patient', 'visitDepartments.department', 'familyPlanningRecords'])
             ->where('company_id', $companyId)
             ->where('branch_id', $branchId)
             ->whereHas('visitDepartments', function ($q) {
                 $q->whereHas('department', function ($query) {
-                    $query->where('type', 'dental');
+                    $query->where('type', 'family_planning');
                 })->where('status', 'in_service');
             })
             ->orderBy('visit_date', 'asc')
             ->get();
 
         // Get completed records today
-        $completedToday = DentalRecord::where('company_id', $companyId)
+        $completedToday = FamilyPlanningRecord::where('company_id', $companyId)
             ->where('branch_id', $branchId)
             ->where('status', 'completed')
             ->whereDate('completed_at', today())
             ->count();
 
         // Get follow-up required records
-        $followUpRequired = DentalRecord::with(['patient', 'visit'])
+        $followUpRequired = FamilyPlanningRecord::with(['patient', 'visit'])
             ->where('company_id', $companyId)
             ->where('branch_id', $branchId)
             ->where('status', 'follow_up_required')
@@ -94,15 +93,15 @@ class DentalController extends Controller
             'follow_up_required' => $followUpRequired->count(),
         ];
 
-        return view('hospital.dental.index', compact('waitingVisits', 'inServiceVisits', 'followUpRequired', 'stats'));
+        return view('hospital.family-planning.index', compact('waitingVisits', 'inServiceVisits', 'followUpRequired', 'stats'));
     }
 
     /**
-     * Show dental procedure form for a visit
+     * Show family planning form for a visit
      */
     public function create($visitId)
     {
-        $visit = Visit::with(['patient', 'visitDepartments.department', 'bills', 'dentalRecords.service', 'dentalRecords.performedBy'])
+        $visit = Visit::with(['patient', 'visitDepartments.department', 'bills', 'familyPlanningRecords.item', 'familyPlanningRecords.performedBy'])
             ->findOrFail($visitId);
 
         // Verify access
@@ -116,8 +115,8 @@ class DentalController extends Controller
         // Check if patient has paid SalesInvoice (match Customer by name/phone/email)
         $patient = $visit->patient;
         $hasPaidInvoice = false;
-        $dentalInvoice = null;
-        $dentalInvoiceItems = collect();
+        $familyPlanningInvoice = null;
+        $familyPlanningInvoiceItems = collect();
         
         if ($patient) {
             $customer = Customer::where('company_id', $patient->company_id)
@@ -133,44 +132,44 @@ class DentalController extends Controller
                 ->first();
             
             if ($customer) {
-                // Get paid SalesInvoice for dental services (check notes for visit number)
-                $dentalInvoice = SalesInvoice::where('customer_id', $customer->id)
+                // Get paid SalesInvoice for family planning (check notes for visit number)
+                $familyPlanningInvoice = SalesInvoice::where('customer_id', $customer->id)
                     ->where('company_id', $patient->company_id)
                     ->where('branch_id', $patient->branch_id)
                     ->where('status', 'paid')
-                    ->where('notes', 'like', "%Dental bill for Visit #{$visit->visit_number}%")
+                    ->where('notes', 'like', "%Family Planning bill for Visit #{$visit->visit_number}%")
                     ->with(['items.inventoryItem'])
                     ->first();
                 
-                if ($dentalInvoice) {
+                if ($familyPlanningInvoice) {
                     $hasPaidInvoice = true;
-                    $dentalInvoiceItems = $dentalInvoice->items;
+                    $familyPlanningInvoiceItems = $familyPlanningInvoice->items;
                 }
             }
         }
         
         if (!$hasClearedBill && !$hasPaidInvoice) {
-            return redirect()->route('hospital.dental.index')
-                ->withErrors(['error' => 'Patient bill must be cleared or paid before dental procedure.']);
+            return redirect()->route('hospital.family-planning.index')
+                ->withErrors(['error' => 'Patient bill must be cleared or paid before family planning service.']);
         }
 
-        // Get existing dental records for this visit, keyed by service_id
-        $existingRecords = DentalRecord::where('visit_id', $visit->id)
+        // Get existing family planning records for this visit, keyed by item_id
+        $existingRecords = FamilyPlanningRecord::where('visit_id', $visit->id)
             ->get()
-            ->keyBy('service_id');
+            ->keyBy('item_id');
 
-        // Get dental department status
-        $dentalDept = $visit->visitDepartments()
+        // Get family planning department status
+        $familyPlanningDept = $visit->visitDepartments()
             ->whereHas('department', function ($q) {
-                $q->where('type', 'dental');
+                $q->where('type', 'family_planning');
             })
             ->first();
 
-        return view('hospital.dental.create', compact('visit', 'dentalInvoice', 'dentalInvoiceItems', 'existingRecords', 'dentalDept'));
+        return view('hospital.family-planning.create', compact('visit', 'familyPlanningInvoice', 'familyPlanningInvoiceItems', 'existingRecords', 'familyPlanningDept'));
     }
 
     /**
-     * Store dental records (multiple services)
+     * Store family planning records (multiple items - services and products)
      */
     public function store(Request $request, $visitId)
     {
@@ -183,10 +182,10 @@ class DentalController extends Controller
 
         $validated = $request->validate([
             'records' => 'required|array|min:1',
-            'records.*.service_id' => 'required|exists:inventory_items,id',
-            'records.*.service_name' => 'nullable|string|max:255',
-            'records.*.record_id' => 'nullable|exists:dental_records,id',
-            'records.*.procedure_type' => 'required|string|max:255',
+            'records.*.item_id' => 'required|exists:inventory_items,id',
+            'records.*.item_name' => 'nullable|string|max:255',
+            'records.*.record_id' => 'nullable|exists:family_planning_records,id',
+            'records.*.service_type' => 'required|string|max:255',
             'records.*.status' => 'required|in:pending,completed,follow_up_required',
         ]);
 
@@ -198,27 +197,27 @@ class DentalController extends Controller
             $branchId = session('branch_id') ?? $user->branch_id;
 
             $allCompleted = true;
-            $recordCounter = DentalRecord::whereDate('created_at', today())->count();
+            $recordCounter = FamilyPlanningRecord::whereDate('created_at', today())->count();
 
             // Process each record
             foreach ($validated['records'] as $recordData) {
-                if (empty($recordData['service_id']) || empty($recordData['procedure_type'])) {
+                if (empty($recordData['item_id']) || empty($recordData['service_type'])) {
                     continue; // Skip empty records
                 }
 
                 // Check if record already exists
                 $existingRecord = null;
                 if (!empty($recordData['record_id'])) {
-                    $existingRecord = DentalRecord::where('id', $recordData['record_id'])
+                    $existingRecord = FamilyPlanningRecord::where('id', $recordData['record_id'])
                         ->where('visit_id', $visit->id)
-                        ->where('service_id', $recordData['service_id'])
+                        ->where('item_id', $recordData['item_id'])
                         ->first();
                 }
 
                 if ($existingRecord) {
                     // Update existing record
                     $existingRecord->update([
-                        'procedure_type' => $recordData['procedure_type'],
+                        'service_type' => $recordData['service_type'],
                         'status' => $recordData['status'],
                         'completed_at' => $recordData['status'] === 'completed' ? now() : null,
                         'performed_by' => $user->id,
@@ -230,14 +229,14 @@ class DentalController extends Controller
                 } else {
                     // Create new record
                     $recordCounter++;
-                    $recordNumber = 'DENT-' . now()->format('Ymd') . '-' . str_pad($recordCounter, 4, '0', STR_PAD_LEFT);
+                    $recordNumber = 'FP-' . now()->format('Ymd') . '-' . str_pad($recordCounter, 4, '0', STR_PAD_LEFT);
 
-                    DentalRecord::create([
+                    FamilyPlanningRecord::create([
                         'record_number' => $recordNumber,
                         'visit_id' => $visit->id,
                         'patient_id' => $visit->patient_id,
-                        'service_id' => $recordData['service_id'],
-                        'procedure_type' => $recordData['procedure_type'],
+                        'item_id' => $recordData['item_id'],
+                        'service_type' => $recordData['service_type'],
                         'status' => $recordData['status'],
                         'completed_at' => $recordData['status'] === 'completed' ? now() : null,
                         'performed_by' => $user->id,
@@ -251,55 +250,50 @@ class DentalController extends Controller
                 }
             }
 
-            // Update dental visit department status to completed if all services are completed
+            // Update family planning visit department status to completed if all items are completed
             if ($allCompleted) {
-                $dentalDept = $visit->visitDepartments()
+                $familyPlanningDept = $visit->visitDepartments()
                     ->whereHas('department', function ($q) {
-                        $q->where('type', 'dental');
+                        $q->where('type', 'family_planning');
                     })
                     ->first();
 
-                if ($dentalDept && $dentalDept->status === 'in_service') {
-                    $dentalDept->status = 'completed';
-                    $dentalDept->service_ended_at = now();
-                    $dentalDept->calculateServiceTime();
-                    $dentalDept->save();
+                if ($familyPlanningDept && $familyPlanningDept->status === 'in_service') {
+                    $familyPlanningDept->status = 'completed';
+                    $familyPlanningDept->service_ended_at = now();
+                    $familyPlanningDept->calculateServiceTime();
+                    $familyPlanningDept->save();
                 }
             }
 
             DB::commit();
 
-            return redirect()->route('hospital.dental.create', $visit->id)
-                ->with('success', 'Dental records saved successfully.');
+            return redirect()->route('hospital.family-planning.create', $visit->id)
+                ->with('success', 'Family planning records saved successfully.');
         } catch (\Exception $e) {
             DB::rollBack();
-            return back()->withInput()->withErrors(['error' => 'Failed to save dental records: ' . $e->getMessage()]);
+            return back()->withInput()->withErrors(['error' => 'Failed to save family planning records: ' . $e->getMessage()]);
         }
     }
 
     /**
-     * Show dental record details
+     * Show family planning record details
      */
     public function show($id)
     {
-        $dentalRecord = DentalRecord::with([
+        $familyPlanningRecord = FamilyPlanningRecord::with([
             'patient',
             'visit',
+            'item',
             'performedBy',
         ])->findOrFail($id);
 
         // Verify access
-        if ($dentalRecord->company_id !== Auth::user()->company_id) {
-            abort(403, 'Unauthorized access to dental record.');
+        if ($familyPlanningRecord->company_id !== Auth::user()->company_id) {
+            abort(403, 'Unauthorized access to family planning record.');
         }
 
-        // Decode images if present
-        $images = [];
-        if ($dentalRecord->images) {
-            $images = json_decode($dentalRecord->images, true) ?? [];
-        }
-
-        return view('hospital.dental.show', compact('dentalRecord', 'images'));
+        return view('hospital.family-planning.show', compact('familyPlanningRecord'));
     }
 
     /**
@@ -314,27 +308,27 @@ class DentalController extends Controller
             abort(403, 'Unauthorized access to visit.');
         }
 
-        // Find dental department
-        $dentalDept = $visit->visitDepartments()
+        // Find family planning department
+        $familyPlanningDept = $visit->visitDepartments()
             ->whereHas('department', function ($q) {
-                $q->where('type', 'dental');
+                $q->where('type', 'family_planning');
             })
             ->where('status', 'waiting')
             ->first();
 
-        if (!$dentalDept) {
-            return back()->withErrors(['error' => 'Dental department not found or already started.']);
+        if (!$familyPlanningDept) {
+            return back()->withErrors(['error' => 'Family planning department not found or already started.']);
         }
 
         try {
-            $dentalDept->status = 'in_service';
-            $dentalDept->service_started_at = now();
-            $dentalDept->served_by = Auth::id();
-            $dentalDept->calculateWaitingTime();
-            $dentalDept->save();
+            $familyPlanningDept->status = 'in_service';
+            $familyPlanningDept->service_started_at = now();
+            $familyPlanningDept->served_by = Auth::id();
+            $familyPlanningDept->calculateWaitingTime();
+            $familyPlanningDept->save();
 
-            return redirect()->route('hospital.dental.index')
-                ->with('success', 'Dental service started.');
+            return redirect()->route('hospital.family-planning.index')
+                ->with('success', 'Family planning service started.');
         } catch (\Exception $e) {
             return back()->withErrors(['error' => 'Failed to start service: ' . $e->getMessage()]);
         }
@@ -345,36 +339,36 @@ class DentalController extends Controller
      */
     public function markCompleted($id)
     {
-        $dentalRecord = DentalRecord::findOrFail($id);
+        $familyPlanningRecord = FamilyPlanningRecord::findOrFail($id);
 
         // Verify access
-        if ($dentalRecord->company_id !== Auth::user()->company_id) {
-            abort(403, 'Unauthorized access to dental record.');
+        if ($familyPlanningRecord->company_id !== Auth::user()->company_id) {
+            abort(403, 'Unauthorized access to family planning record.');
         }
 
         try {
-            $dentalRecord->status = 'completed';
-            $dentalRecord->completed_at = now();
-            $dentalRecord->save();
+            $familyPlanningRecord->status = 'completed';
+            $familyPlanningRecord->completed_at = now();
+            $familyPlanningRecord->save();
 
-            // Update dental visit department status to completed
-            $visit = $dentalRecord->visit;
-            $dentalDept = $visit->visitDepartments()
+            // Update family planning visit department status to completed
+            $visit = $familyPlanningRecord->visit;
+            $familyPlanningDept = $visit->visitDepartments()
                 ->whereHas('department', function ($q) {
-                    $q->where('type', 'dental');
+                    $q->where('type', 'family_planning');
                 })
                 ->where('status', 'in_service')
                 ->first();
 
-            if ($dentalDept) {
-                $dentalDept->status = 'completed';
-                $dentalDept->service_ended_at = now();
-                $dentalDept->calculateServiceTime();
-                $dentalDept->save();
+            if ($familyPlanningDept) {
+                $familyPlanningDept->status = 'completed';
+                $familyPlanningDept->service_ended_at = now();
+                $familyPlanningDept->calculateServiceTime();
+                $familyPlanningDept->save();
             }
 
-            return redirect()->route('hospital.dental.show', $dentalRecord->id)
-                ->with('success', 'Dental record marked as completed.');
+            return redirect()->route('hospital.family-planning.show', $familyPlanningRecord->id)
+                ->with('success', 'Family planning record marked as completed.');
         } catch (\Exception $e) {
             return back()->withErrors(['error' => 'Failed to mark record as completed: ' . $e->getMessage()]);
         }

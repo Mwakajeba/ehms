@@ -931,6 +931,19 @@ Route::prefix('hospital')->name('hospital.')->middleware(['auth', 'company.scope
     Route::prefix('doctor')->name('doctor.')->group(function () {
         Route::get('/', [App\Http\Controllers\Hospital\DoctorController::class, 'index'])->name('index');
         Route::get('/visits/{visitId}/create', [App\Http\Controllers\Hospital\DoctorController::class, 'create'])->name('create');
+        Route::post('/visits/{visitId}/store-pre-bill', [App\Http\Controllers\Hospital\DoctorController::class, 'storePreBill'])->name('store-pre-bill');
+        Route::get('/visits/{visitId}/create-lab-bill', [App\Http\Controllers\Hospital\DoctorController::class, 'createLabBill'])->name('create-lab-bill');
+        Route::post('/visits/{visitId}/store-lab-bill', [App\Http\Controllers\Hospital\DoctorController::class, 'storeLabBill'])->name('store-lab-bill');
+        Route::get('/visits/{visitId}/create-diagnosis', [App\Http\Controllers\Hospital\DoctorController::class, 'createDiagnosis'])->name('create-diagnosis');
+        Route::post('/visits/{visitId}/store-diagnosis', [App\Http\Controllers\Hospital\DoctorController::class, 'storeDiagnosis'])->name('store-diagnosis');
+        Route::get('/visits/{visitId}/create-pharmacy-bill', [App\Http\Controllers\Hospital\DoctorController::class, 'createPharmacyBill'])->name('create-pharmacy-bill');
+        Route::post('/visits/{visitId}/store-pharmacy-bill', [App\Http\Controllers\Hospital\DoctorController::class, 'storePharmacyBill'])->name('store-pharmacy-bill');
+        Route::get('/visits/{visitId}/create-vaccination-bill', [App\Http\Controllers\Hospital\DoctorController::class, 'createVaccinationBill'])->name('create-vaccination-bill');
+        Route::post('/visits/{visitId}/store-vaccination-bill', [App\Http\Controllers\Hospital\DoctorController::class, 'storeVaccinationBill'])->name('store-vaccination-bill');
+        Route::get('/visits/{visitId}/create-injection-bill', [App\Http\Controllers\Hospital\DoctorController::class, 'createInjectionBill'])->name('create-injection-bill');
+        Route::post('/visits/{visitId}/store-injection-bill', [App\Http\Controllers\Hospital\DoctorController::class, 'storeInjectionBill'])->name('store-injection-bill');
+        Route::get('/visits/{visitId}/create-dental-bill', [App\Http\Controllers\Hospital\DoctorController::class, 'createDentalBill'])->name('create-dental-bill');
+        Route::post('/visits/{visitId}/store-dental-bill', [App\Http\Controllers\Hospital\DoctorController::class, 'storeDentalBill'])->name('store-dental-bill');
         Route::post('/visits/{visitId}', [App\Http\Controllers\Hospital\DoctorController::class, 'store'])->name('store');
         Route::get('/visits/{visitId}', [App\Http\Controllers\Hospital\DoctorController::class, 'show'])->name('show');
         Route::post('/visits/{visitId}/start-service', [App\Http\Controllers\Hospital\DoctorController::class, 'startService'])->name('start-service');
@@ -991,20 +1004,35 @@ Route::prefix('hospital')->name('hospital.')->middleware(['auth', 'company.scope
         Route::post('/records/{id}/mark-completed', [App\Http\Controllers\Hospital\RCHController::class, 'markCompleted'])->name('mark-completed');
     });
     
-    // Vaccine
-    Route::get('/vaccine', function () {
-        return view('hospital.coming-soon', ['module' => 'Vaccine', 'description' => 'Vaccination tracking and immunization records']);
-    })->name('vaccine.index');
+    // Vaccination Routes
+    Route::prefix('vaccination')->name('vaccination.')->group(function () {
+        Route::get('/', [App\Http\Controllers\Hospital\VaccinationController::class, 'index'])->name('index');
+        Route::get('/visits/{visitId}/create', [App\Http\Controllers\Hospital\VaccinationController::class, 'create'])->name('create');
+        Route::post('/visits/{visitId}/store', [App\Http\Controllers\Hospital\VaccinationController::class, 'store'])->name('store');
+        Route::get('/{id}', [App\Http\Controllers\Hospital\VaccinationController::class, 'show'])->name('show');
+        Route::post('/visits/{visitId}/start-service', [App\Http\Controllers\Hospital\VaccinationController::class, 'startService'])->name('start-service');
+        Route::post('/{id}/mark-completed', [App\Http\Controllers\Hospital\VaccinationController::class, 'markCompleted'])->name('mark-completed');
+    });
     
-    // Injection
-    Route::get('/injection', function () {
-        return view('hospital.coming-soon', ['module' => 'Injection', 'description' => 'Injection services and medication administration']);
-    })->name('injection.index');
+    // Injection Routes
+    Route::prefix('injection')->name('injection.')->group(function () {
+        Route::get('/', [App\Http\Controllers\Hospital\InjectionController::class, 'index'])->name('index');
+        Route::get('/visits/{visitId}/create', [App\Http\Controllers\Hospital\InjectionController::class, 'create'])->name('create');
+        Route::post('/visits/{visitId}/store', [App\Http\Controllers\Hospital\InjectionController::class, 'store'])->name('store');
+        Route::get('/{id}', [App\Http\Controllers\Hospital\InjectionController::class, 'show'])->name('show');
+        Route::post('/visits/{visitId}/start-service', [App\Http\Controllers\Hospital\InjectionController::class, 'startService'])->name('start-service');
+        Route::post('/{id}/mark-completed', [App\Http\Controllers\Hospital\InjectionController::class, 'markCompleted'])->name('mark-completed');
+    });
     
-    // Family Planning
-    Route::get('/family-planning', function () {
-        return view('hospital.coming-soon', ['module' => 'Family Planning', 'description' => 'Family planning services and counseling']);
-    })->name('family-planning.index');
+    // Family Planning Routes
+    Route::prefix('family-planning')->name('family-planning.')->group(function () {
+        Route::get('/', [App\Http\Controllers\Hospital\FamilyPlanningController::class, 'index'])->name('index');
+        Route::get('/visits/{visitId}/create', [App\Http\Controllers\Hospital\FamilyPlanningController::class, 'create'])->name('create');
+        Route::post('/visits/{visitId}/store', [App\Http\Controllers\Hospital\FamilyPlanningController::class, 'store'])->name('store');
+        Route::get('/{id}', [App\Http\Controllers\Hospital\FamilyPlanningController::class, 'show'])->name('show');
+        Route::post('/visits/{visitId}/start-service', [App\Http\Controllers\Hospital\FamilyPlanningController::class, 'startService'])->name('start-service');
+        Route::post('/{id}/mark-completed', [App\Http\Controllers\Hospital\FamilyPlanningController::class, 'markCompleted'])->name('mark-completed');
+    });
     
     // Hospital Admin
     Route::get('/admin', function () {

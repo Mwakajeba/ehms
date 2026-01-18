@@ -10,6 +10,11 @@ use App\Models\Hospital\PharmacyDispensationItem;
 use App\Models\Hospital\VisitBill;
 use App\Models\Hospital\VisitBillItem;
 use App\Models\Inventory\Item;
+use App\Models\Inventory\Movement;
+use App\Models\Customer;
+use App\Models\Sales\SalesInvoice;
+use App\Models\SystemSetting;
+use App\Models\GlTransaction;
 use App\Services\InventoryStockService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -35,7 +40,7 @@ class PharmacyController extends Controller
         $branchId = session('branch_id') ?? $user->branch_id;
         $locationId = session('location_id') ?? $user->location_id ?? null;
 
-        // Get visits waiting for pharmacy (bills must be cleared)
+        // Get visits waiting for pharmacy (bills must be cleared OR has paid SalesInvoice for pharmacy)
         $waitingVisits = Visit::with(['patient', 'visitDepartments.department', 'bills', 'consultation', 'pharmacyDispensations'])
             ->where('company_id', $companyId)
             ->where('branch_id', $branchId)
@@ -44,8 +49,27 @@ class PharmacyController extends Controller
                     $query->where('type', 'pharmacy');
                 })->where('status', 'waiting');
             })
-            ->whereHas('bills', function ($q) {
-                $q->where('clearance_status', 'cleared');
+            ->where(function ($query) use ($companyId, $branchId) {
+                // Either has cleared VisitBill (old flow)
+                $query->whereHas('bills', function ($q) {
+                    $q->where('clearance_status', 'cleared');
+                })
+                // OR has Customer with paid SalesInvoice matching patient (new pre-billing flow - pharmacy bill)
+                ->orWhereExists(function ($subQuery) use ($companyId, $branchId) {
+                    $subQuery->select(DB::raw(1))
+                        ->from('sales_invoices')
+                        ->join('customers', 'sales_invoices.customer_id', '=', 'customers.id')
+                        ->join('patients', 'patients.id', '=', 'visits.patient_id')
+                        ->where('sales_invoices.company_id', $companyId)
+                        ->where('sales_invoices.branch_id', $branchId)
+                        ->where('sales_invoices.status', 'paid')
+                        ->where('sales_invoices.notes', 'like', '%Pharmacy bill for Visit%')
+                        ->where(function ($q) {
+                            $q->whereColumn('customers.phone', 'patients.phone')
+                                ->orWhereColumn('customers.email', 'patients.email')
+                                ->orWhereColumn('customers.name', DB::raw("CONCAT(patients.first_name, ' ', patients.last_name)"));
+                        });
+                });
             })
             ->orderBy('visit_date', 'asc')
             ->get();
@@ -98,37 +122,99 @@ class PharmacyController extends Controller
             abort(403, 'Unauthorized access to visit.');
         }
 
-        // Check if bill is cleared
+        // Check if bill is cleared (VisitBill) OR has paid SalesInvoice (pre-billing)
         $hasClearedBill = $visit->bills()->where('clearance_status', 'cleared')->exists();
-        if (!$hasClearedBill) {
+        
+        $patient = $visit->patient;
+        $hasPaidInvoice = false;
+        if ($patient) {
+            $customer = Customer::where('company_id', $patient->company_id)
+                ->where(function ($q) use ($patient) {
+                    if ($patient->phone) {
+                        $q->where('phone', $patient->phone);
+                    }
+                    if ($patient->email) {
+                        $q->orWhere('email', $patient->email);
+                    }
+                    $q->orWhere('name', $patient->full_name);
+                })
+                ->first();
+            
+            if ($customer) {
+                $hasPaidInvoice = SalesInvoice::where('customer_id', $customer->id)
+                    ->where('company_id', $patient->company_id)
+                    ->where('branch_id', $patient->branch_id)
+                    ->where('status', 'paid')
+                    ->where('notes', 'like', '%Pharmacy bill for Visit%')
+                    ->exists();
+            }
+        }
+        
+        if (!$hasClearedBill && !$hasPaidInvoice) {
             return redirect()->route('hospital.pharmacy.index')
-                ->withErrors(['error' => 'Patient bill must be cleared before pharmacy dispensing.']);
+                ->withErrors(['error' => 'Patient bill must be cleared or paid before pharmacy dispensing.']);
         }
 
-        // Get available medications from inventory_items (products only)
+        // Get medications from paid SalesInvoice (pharmacy bill created by doctor)
+        $pharmacyInvoice = null;
+        $invoiceItems = collect();
+        
+        if ($hasPaidInvoice && $patient) {
+            $customer = Customer::where('company_id', $patient->company_id)
+                ->where(function ($q) use ($patient) {
+                    if ($patient->phone) {
+                        $q->where('phone', $patient->phone);
+                    }
+                    if ($patient->email) {
+                        $q->orWhere('email', $patient->email);
+                    }
+                    $q->orWhere('name', $patient->full_name);
+                })
+                ->first();
+            
+            if ($customer) {
+                $pharmacyInvoice = SalesInvoice::where('customer_id', $customer->id)
+                    ->where('company_id', $patient->company_id)
+                    ->where('branch_id', $patient->branch_id)
+                    ->where('status', 'paid')
+                    ->where('notes', 'like', '%Pharmacy bill for Visit #' . $visit->visit_number . '%')
+                    ->with(['items.inventoryItem'])
+                    ->first();
+                
+                if ($pharmacyInvoice) {
+                    $invoiceItems = $pharmacyInvoice->items;
+                }
+            }
+        }
+
         $user = Auth::user();
         $locationId = session('location_id') ?? $user->location_id ?? null;
-        
-        $medications = Item::where('company_id', $user->company_id)
-            ->where('item_type', 'product')
-            ->where('is_active', true)
-            ->orderBy('name')
-            ->get()
-            ->map(function ($item) use ($locationId) {
-                $stock = 0;
-                if ($locationId && $item->track_stock) {
-                    $stock = $this->stockService->getItemStockAtLocation($item->id, $locationId);
-                }
-                return [
-                    'id' => $item->id,
-                    'name' => $item->name,
-                    'code' => $item->code,
-                    'unit_price' => $item->unit_price,
-                    'unit_of_measure' => $item->unit_of_measure,
-                    'stock' => $stock,
-                    'track_stock' => $item->track_stock,
-                ];
-            });
+
+        // Map invoice items to medications format
+        $medications = $invoiceItems->map(function ($invoiceItem) use ($locationId) {
+            $item = $invoiceItem->inventoryItem;
+            if (!$item || $item->item_type !== 'product') {
+                return null;
+            }
+            
+            $stock = 0;
+            if ($locationId && $item->track_stock) {
+                $stock = $this->stockService->getItemStockAtLocation($item->id, $locationId);
+            }
+            
+            return [
+                'id' => $item->id,
+                'name' => $item->name,
+                'code' => $item->code,
+                'unit_price' => $invoiceItem->unit_price,
+                'unit_of_measure' => $item->unit_of_measure,
+                'stock' => $stock,
+                'track_stock' => $item->track_stock,
+                'quantity' => $invoiceItem->quantity,
+                'description' => $invoiceItem->description ?? '', // Dosage from doctor
+                'sales_invoice_item_id' => $invoiceItem->id,
+            ];
+        })->filter();
 
         // Get prescription from consultation if available
         $prescription = null;
@@ -136,7 +222,7 @@ class PharmacyController extends Controller
             $prescription = $visit->consultation->prescription;
         }
 
-        return view('hospital.pharmacy.create', compact('visit', 'medications', 'prescription', 'locationId'));
+        return view('hospital.pharmacy.create', compact('visit', 'medications', 'prescription', 'locationId', 'pharmacyInvoice'));
     }
 
     /**
@@ -154,12 +240,18 @@ class PharmacyController extends Controller
         $validated = $request->validate([
             'items' => 'required|array|min:1',
             'items.*.product_id' => 'required|exists:inventory_items,id',
-            'items.*.quantity_prescribed' => 'required|integer|min:1',
-            'items.*.quantity_dispensed' => 'required|integer|min:0',
-            'items.*.dosage_instructions' => 'nullable|string',
+            'items.*.quantity_prescribed' => 'required|numeric|min:1',
+            'items.*.quantity_dispensed' => 'required|numeric|min:0',
+            'items.*.sales_invoice_item_id' => 'nullable|exists:sales_invoice_items,id',
             'instructions' => 'nullable|string',
-            'create_bill' => 'boolean',
         ]);
+
+        // Convert numeric values to integers for database
+        $validated['items'] = array_map(function ($item) {
+            $item['quantity_prescribed'] = (int) $item['quantity_prescribed'];
+            $item['quantity_dispensed'] = (int) $item['quantity_dispensed'];
+            return $item;
+        }, $validated['items']);
 
         try {
             DB::beginTransaction();
@@ -188,85 +280,124 @@ class PharmacyController extends Controller
                 return back()->withInput()->withErrors(['stock' => 'Insufficient stock: ' . implode(', ', $stockIssues)]);
             }
 
-            // Create bill if requested
+            // No need to create bill - it already exists from doctor's pharmacy invoice
             $bill = null;
-            if ($request->boolean('create_bill')) {
-                $billNumber = 'BILL-' . now()->format('Ymd') . '-' . str_pad(VisitBill::whereDate('created_at', today())->count() + 1, 4, '0', STR_PAD_LEFT);
-                
-                $bill = VisitBill::create([
-                    'bill_number' => $billNumber,
-                    'visit_id' => $visit->id,
-                    'patient_id' => $visit->patient_id,
-                    'bill_type' => 'pharmacy_bill',
-                    'subtotal' => 0,
-                    'total' => 0,
-                    'payment_status' => 'pending',
-                    'clearance_status' => 'pending',
-                    'company_id' => $companyId,
-                    'branch_id' => $branchId,
-                    'created_by' => $user->id,
-                ]);
 
-                $subtotal = 0;
-                foreach ($validated['items'] as $itemData) {
-                    $product = Item::find($itemData['product_id']);
-                    $quantity = $itemData['quantity_dispensed'];
-                    $itemTotal = $product->unit_price * $quantity;
-                    $subtotal += $itemTotal;
-
-                    VisitBillItem::create([
-                        'bill_id' => $bill->id,
-                        'item_type' => 'product',
-                        'service_id' => null,
-                        'product_id' => $product->id,
-                        'item_name' => $product->name,
-                        'quantity' => $quantity,
-                        'unit_price' => $product->unit_price,
-                        'total' => $itemTotal,
-                    ]);
-                }
-
-                $bill->subtotal = $subtotal;
-                $bill->total = $subtotal;
-                $bill->balance = $subtotal;
-                $bill->save();
-            }
-
-            // Create dispensation
+            // Create dispensation (bill is already paid via SalesInvoice)
             $dispensation = PharmacyDispensation::create([
                 'dispensation_number' => $dispensationNumber,
                 'visit_id' => $visit->id,
                 'patient_id' => $visit->patient_id,
-                'bill_id' => $bill ? $bill->id : null,
+                'bill_id' => null, // No VisitBill - using SalesInvoice instead
                 'status' => 'pending',
                 'instructions' => $validated['instructions'] ?? null,
                 'company_id' => $companyId,
                 'branch_id' => $branchId,
             ]);
 
-            // Create dispensation items
+            // Create dispensation items - get dosage from SalesInvoiceItem description
             foreach ($validated['items'] as $itemData) {
                 $product = Item::find($itemData['product_id']);
-                $status = $itemData['quantity_dispensed'] > 0 ? 'pending' : 'cancelled';
+                $status = $itemData['quantity_dispensed'] > 0 ? 'dispensed' : 'cancelled';
                 
                 if ($itemData['quantity_dispensed'] < $itemData['quantity_prescribed']) {
                     $status = 'partial';
                 }
 
-                PharmacyDispensationItem::create([
+                // Get dosage from SalesInvoiceItem if available
+                $dosageInstructions = null;
+                if (!empty($itemData['sales_invoice_item_id'])) {
+                    $invoiceItem = \App\Models\Sales\SalesInvoiceItem::find($itemData['sales_invoice_item_id']);
+                    if ($invoiceItem && $invoiceItem->description) {
+                        $dosageInstructions = $invoiceItem->description;
+                    }
+                }
+
+                $dispensationItem = PharmacyDispensationItem::create([
                     'dispensation_id' => $dispensation->id,
                     'product_id' => $product->id,
                     'quantity_prescribed' => $itemData['quantity_prescribed'],
                     'quantity_dispensed' => $itemData['quantity_dispensed'],
-                    'dosage_instructions' => $itemData['dosage_instructions'] ?? null,
+                    'dosage_instructions' => $dosageInstructions,
                     'status' => $status,
                 ]);
+
+                // Create inventory movement and GL transactions for dispensed items
+                if ($itemData['quantity_dispensed'] > 0 && $product) {
+                    $unitCost = $product->cost_price ?? 0;
+                    $totalCost = $itemData['quantity_dispensed'] * $unitCost;
+                    
+                    // Check stock if tracking is enabled
+                    $balanceBefore = null;
+                    $balanceAfter = null;
+                    if ($product->track_stock && $locationId) {
+                        $availableStock = $this->stockService->getItemStockAtLocation($product->id, $locationId);
+                        
+                        if ($itemData['quantity_dispensed'] > $availableStock) {
+                            DB::rollBack();
+                            return back()->withInput()->withErrors(['error' => "Insufficient stock for {$product->name}. Available: {$availableStock}, Required: {$itemData['quantity_dispensed']}"]);
+                        }
+
+                        // Calculate balance before and after
+                        $balanceBefore = $availableStock;
+                        $balanceAfter = $balanceBefore - $itemData['quantity_dispensed'];
+                    }
+
+                    // Create inventory movement (sold) - always create for GL transactions
+                    // Use default location if not set
+                    $movementLocationId = $locationId ?? SystemSetting::where('key', 'inventory_default_location')->value('value') ?? 1;
+                    
+                    $movement = Movement::create([
+                        'branch_id' => $branchId,
+                        'location_id' => $movementLocationId,
+                        'item_id' => $product->id,
+                        'user_id' => $user->id,
+                        'movement_type' => 'sold',
+                        'quantity' => $itemData['quantity_dispensed'],
+                        'unit_price' => $product->unit_price ?? 0,
+                        'unit_cost' => $unitCost,
+                        'total_cost' => $totalCost,
+                        'balance_before' => $balanceBefore,
+                        'balance_after' => $balanceAfter,
+                        'reference_type' => 'pharmacy_dispensation',
+                        'reference_id' => $dispensation->id,
+                        'reference_number' => $dispensation->dispensation_number,
+                        'notes' => "Dispensed to patient: {$visit->patient->full_name}",
+                        'movement_date' => now(),
+                    ]);
+
+                    // Create GL transactions if total cost > 0
+                    if ($totalCost > 0) {
+                        $this->createGLTransactionsForDispense($movement, $product, $dispensation, $user);
+                    }
+                    
+                    Log::info('Inventory movement created for pharmacy dispensation during store', [
+                        'movement_id' => $movement->id,
+                        'dispensation_id' => $dispensation->id,
+                        'product_id' => $product->id,
+                        'quantity' => $itemData['quantity_dispensed'],
+                        'total_cost' => $totalCost,
+                    ]);
+                }
+            }
+
+            // Update dispensation status to dispensed if any items were dispensed
+            $hasDispensedItems = $dispensation->items()->where('quantity_dispensed', '>', 0)->exists();
+            if ($hasDispensedItems) {
+                $dispensation->status = 'dispensed';
+                $dispensation->dispensed_by = $user->id;
+                $dispensation->dispensed_at = now();
+                $dispensation->save();
             }
 
             DB::commit();
 
+            $message = $hasDispensedItems 
+                ? 'Medications dispensed successfully. Stock updated and GL transactions recorded.'
+                : 'Dispensation created successfully.';
+
             return redirect()->route('hospital.pharmacy.show', $dispensation->id)
-                ->with('success', 'Dispensation created successfully.');
+                ->with('success', $message);
         } catch (\Exception $e) {
             DB::rollBack();
             Log::error('Pharmacy dispensation error: ' . $e->getMessage());
@@ -347,7 +478,7 @@ class PharmacyController extends Controller
     }
 
     /**
-     * Dispense medications
+     * Dispense medications (just mark as dispensed - movements/GL already created in store)
      */
     public function dispense($id)
     {
@@ -366,55 +497,15 @@ class PharmacyController extends Controller
             DB::beginTransaction();
 
             $user = Auth::user();
-            $locationId = session('location_id') ?? $user->location_id ?? null;
 
-            // Check stock and create inventory movements
+            // Update item statuses (already set during store, but ensure consistency)
             foreach ($dispensation->items as $item) {
-                if ($item->quantity_dispensed > 0 && $item->product) {
-                    $product = $item->product;
-                    
-                    if ($product->track_stock && $locationId) {
-                        $availableStock = $this->stockService->getItemStockAtLocation($product->id, $locationId);
-                        
-                        if ($item->quantity_dispensed > $availableStock) {
-                            DB::rollBack();
-                            return back()->withErrors(['error' => "Insufficient stock for {$product->name}. Available: {$availableStock}, Required: {$item->quantity_dispensed}"]);
-                        }
-
-                        // Calculate balance before and after
-                        $balanceBefore = $availableStock;
-                        $balanceAfter = $balanceBefore - $item->quantity_dispensed;
-                        $unitCost = $product->cost_price ?? 0;
-                        $totalCost = $item->quantity_dispensed * $unitCost;
-
-                        // Create inventory movement (sold)
-                        \App\Models\Inventory\Movement::create([
-                            'branch_id' => $user->branch_id,
-                            'location_id' => $locationId,
-                            'item_id' => $product->id,
-                            'user_id' => $user->id,
-                            'movement_type' => 'sold',
-                            'quantity' => $item->quantity_dispensed,
-                            'unit_price' => $product->unit_price ?? 0,
-                            'unit_cost' => $unitCost,
-                            'total_cost' => $totalCost,
-                            'balance_before' => $balanceBefore,
-                            'balance_after' => $balanceAfter,
-                            'reference_type' => 'pharmacy_dispensation',
-                            'reference_id' => $dispensation->id,
-                            'notes' => "Dispensed to patient: {$dispensation->patient->full_name}",
-                            'movement_date' => now(),
-                        ]);
-                    }
-
-                    // Update item status
-                    if ($item->quantity_dispensed >= $item->quantity_prescribed) {
-                        $item->status = 'dispensed';
-                    } elseif ($item->quantity_dispensed > 0) {
-                        $item->status = 'partial';
-                    }
-                    $item->save();
+                if ($item->quantity_dispensed >= $item->quantity_prescribed) {
+                    $item->status = 'dispensed';
+                } elseif ($item->quantity_dispensed > 0) {
+                    $item->status = 'partial';
                 }
+                $item->save();
             }
 
             // Update dispensation status
@@ -440,10 +531,14 @@ class PharmacyController extends Controller
             DB::commit();
 
             return redirect()->route('hospital.pharmacy.show', $dispensation->id)
-                ->with('success', 'Medications dispensed successfully. Stock updated.');
+                ->with('success', 'Medications dispensed successfully.');
         } catch (\Exception $e) {
             DB::rollBack();
-            Log::error('Pharmacy dispense error: ' . $e->getMessage());
+            Log::error('Pharmacy dispense error', [
+                'dispensation_id' => $id,
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
+            ]);
             return back()->withErrors(['error' => 'Failed to dispense medications: ' . $e->getMessage()]);
         }
     }
@@ -477,5 +572,68 @@ class PharmacyController extends Controller
             'unit' => $product->unit_of_measure,
             'track_stock' => $product->track_stock,
         ]);
+    }
+
+    /**
+     * Create GL transactions for pharmacy dispensation
+     */
+    private function createGLTransactionsForDispense($movement, $product, $dispensation, $user)
+    {
+        try {
+            // Get default accounts from system settings
+            $inventoryAccountId = SystemSetting::where('key', 'inventory_default_inventory_account')->value('value');
+            $costAccountId = SystemSetting::where('key', 'inventory_default_cost_account')->value('value');
+
+            if (!$inventoryAccountId || !$costAccountId) {
+                Log::warning('Default inventory account or cost account not configured in inventory settings. Skipping GL transactions for pharmacy dispensation.');
+                return;
+            }
+
+            $totalCost = $movement->total_cost;
+            if ($totalCost <= 0) {
+                Log::warning("Zero or negative cost for pharmacy dispensation. Skipping GL transactions.");
+                return;
+            }
+
+            $branchId = session('branch_id') ?? $user->branch_id;
+            $description = "Pharmacy Dispensation: {$dispensation->dispensation_number} - {$product->name} - Patient: {$dispensation->patient->full_name}";
+
+            // Debit: Cost of Goods Sold Account (Expense increases)
+            GlTransaction::create([
+                'chart_account_id' => $costAccountId,
+                'amount' => $totalCost,
+                'nature' => 'debit',
+                'transaction_id' => $movement->id,
+                'transaction_type' => 'pharmacy_dispensation',
+                'date' => $movement->movement_date ?? now(),
+                'description' => $description,
+                'branch_id' => $branchId,
+                'user_id' => $user->id,
+            ]);
+
+            // Credit: Inventory Account (Asset decreases)
+            GlTransaction::create([
+                'chart_account_id' => $inventoryAccountId,
+                'amount' => $totalCost,
+                'nature' => 'credit',
+                'transaction_id' => $movement->id,
+                'transaction_type' => 'pharmacy_dispensation',
+                'date' => $movement->movement_date ?? now(),
+                'description' => $description,
+                'branch_id' => $branchId,
+                'user_id' => $user->id,
+            ]);
+
+            Log::info('GL transactions created for pharmacy dispensation', [
+                'movement_id' => $movement->id,
+                'dispensation_id' => $dispensation->id,
+                'total_cost' => $totalCost,
+                'inventory_account_id' => $inventoryAccountId,
+                'cost_account_id' => $costAccountId,
+            ]);
+        } catch (\Exception $e) {
+            Log::error("Failed to create GL transactions for pharmacy dispensation: " . $e->getMessage());
+            // Don't throw - allow dispensation to continue even if GL fails
+        }
     }
 }

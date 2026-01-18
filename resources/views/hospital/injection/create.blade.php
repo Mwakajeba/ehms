@@ -1,6 +1,6 @@
 @extends('layouts.main')
 
-@section('title', 'Record Dental Procedure')
+@section('title', 'Record Injection')
 
 @section('content')
     <div class="page-wrapper">
@@ -8,16 +8,16 @@
             <x-breadcrumbs-with-icons :links="[
                 ['label' => 'Dashboard', 'url' => route('dashboard'), 'icon' => 'bx bx-home'],
                 ['label' => 'Hospital Management', 'url' => route('hospital.index'), 'icon' => 'bx bx-plus-medical'],
-                ['label' => 'Dental', 'url' => route('hospital.dental.index'), 'icon' => 'bx bx-smile'],
-                ['label' => 'Record Procedure', 'url' => '#', 'icon' => 'bx bx-plus']
+                ['label' => 'Injection', 'url' => route('hospital.injection.index'), 'icon' => 'bx bx-injection'],
+                ['label' => 'Record Injection', 'url' => '#', 'icon' => 'bx bx-plus']
             ]" />
-            <h6 class="mb-0 text-uppercase">RECORD DENTAL PROCEDURE</h6>
+            <h6 class="mb-0 text-uppercase">RECORD INJECTION</h6>
             <hr />
 
             <div class="row">
                 <div class="col-12">
                     <div class="card">
-                        <div class="card-header bg-info text-white">
+                        <div class="card-header bg-danger text-white">
                             <h5 class="mb-0"><i class="bx bx-user me-2"></i>Patient: {{ $visit->patient->full_name }} (MRN: {{ $visit->patient->mrn }})</h5>
                         </div>
                         <div class="card-body">
@@ -32,15 +32,15 @@
                             @endif
 
                             <!-- Visit Status -->
-                            <div class="alert alert-info mb-4">
+                            <div class="alert alert-danger mb-4">
                                 <div class="row">
                                     <div class="col-md-6">
                                         <strong>Visit #:</strong> {{ $visit->visit_number }}<br>
                                         <strong>Visit Status:</strong> 
-                                        @if($dentalDept)
-                                            @if($dentalDept->status === 'completed')
+                                        @if($vaccinationDept)
+                                            @if($vaccinationDept->status === 'completed')
                                                 <span class="badge bg-success">Completed</span>
-                                            @elseif($dentalDept->status === 'in_service')
+                                            @elseif($vaccinationDept->status === 'in_service')
                                                 <span class="badge bg-primary">In Service</span>
                                             @else
                                                 <span class="badge bg-warning">Pending</span>
@@ -57,43 +57,48 @@
                                 </div>
                             </div>
 
-                            @if($dentalInvoice && $dentalInvoiceItems->count() > 0)
+                            @if($injectionInvoice && $injectionInvoiceItems->count() > 0)
                                 <div class="alert alert-info mb-4">
                                     <i class="bx bx-info-circle me-2"></i>
-                                    <strong>Dental Services from Doctor:</strong> The following services were ordered by the doctor. Please add records for each service and mark as completed.
+                                    <strong>Injection Items from Doctor:</strong> The following services/products were ordered by the doctor. Please add records for each item and mark as completed.
                                 </div>
 
-                                <form action="{{ route('hospital.dental.store', $visit->id) }}" method="POST" enctype="multipart/form-data" id="dental-records-form">
+                                <form action="{{ route('hospital.injection.store', $visit->id) }}" method="POST" id="injection-records-form">
                                     @csrf
 
                                     <div class="table-responsive mb-4">
                                         <table class="table table-bordered">
                                             <thead class="table-light">
                                                 <tr>
-                                                    <th width="20%">Service Name</th>
-                                                    <th width="15%">Description</th>
-                                                    <th width="10%">Quantity</th>
+                                                    <th width="18%">Item Name</th>
+                                                    <th width="12%">Type</th>
+                                                    <th width="12%">Description</th>
+                                                    <th width="8%">Quantity</th>
                                                     <th width="10%">Unit Price</th>
-                                                    <th width="15%">Procedure Type</th>
+                                                    <th width="15%">Injection Type</th>
                                                     <th width="10%">Status</th>
-                                                    <th width="10%">Service Status</th>
-                                                    <th width="10%">Actions</th>
+                                                    <th width="10%">Item Status</th>
+                                                    <th width="5%">Actions</th>
                                                 </tr>
                                             </thead>
                                             <tbody>
-                                                @foreach($dentalInvoiceItems as $index => $item)
+                                                @foreach($injectionInvoiceItems as $index => $item)
                                                     @php
-                                                        $serviceId = $item->inventory_item_id;
-                                                        $service = $item->inventoryItem ?? null;
-                                                        $existingRecord = $existingRecords->get($serviceId);
+                                                        $itemId = $item->inventory_item_id;
+                                                        $inventoryItem = $item->inventoryItem ?? null;
+                                                        $existingRecord = $existingRecords->get($itemId);
+                                                        $itemType = $inventoryItem ? ($inventoryItem->item_type === 'service' ? 'Service' : 'Product') : 'N/A';
                                                     @endphp
                                                     <tr>
                                                         <td>
-                                                            <input type="hidden" name="records[{{ $index }}][service_id]" value="{{ $serviceId }}">
-                                                            <input type="hidden" name="records[{{ $index }}][service_name]" value="{{ $item->item_name }}">
+                                                            <input type="hidden" name="records[{{ $index }}][item_id]" value="{{ $itemId }}">
+                                                            <input type="hidden" name="records[{{ $index }}][item_name]" value="{{ $item->item_name }}">
                                                             <strong>{{ $item->item_name }}</strong>
                                                             <br>
-                                                            <small class="text-muted">{{ $service->code ?? $item->item_code ?? 'N/A' }}</small>
+                                                            <small class="text-muted">{{ $inventoryItem->code ?? $item->item_code ?? 'N/A' }}</small>
+                                                        </td>
+                                                        <td>
+                                                            <span class="badge bg-{{ $itemType === 'Service' ? 'primary' : 'success' }}">{{ $itemType }}</span>
                                                         </td>
                                                         <td>
                                                             <small class="text-muted">{{ $item->description ?? 'No description' }}</small>
@@ -103,29 +108,21 @@
                                                         <td>
                                                             @if($existingRecord)
                                                                 <input type="hidden" name="records[{{ $index }}][record_id]" value="{{ $existingRecord->id }}">
-                                                                <select class="form-select form-select-sm" name="records[{{ $index }}][procedure_type]">
-                                                                    <option value="Cleaning" {{ ($existingRecord->procedure_type ?? old("records.{$index}.procedure_type")) == 'Cleaning' ? 'selected' : '' }}>Cleaning</option>
-                                                                    <option value="Filling" {{ ($existingRecord->procedure_type ?? old("records.{$index}.procedure_type")) == 'Filling' ? 'selected' : '' }}>Filling</option>
-                                                                    <option value="Extraction" {{ ($existingRecord->procedure_type ?? old("records.{$index}.procedure_type")) == 'Extraction' ? 'selected' : '' }}>Extraction</option>
-                                                                    <option value="Root Canal" {{ ($existingRecord->procedure_type ?? old("records.{$index}.procedure_type")) == 'Root Canal' ? 'selected' : '' }}>Root Canal</option>
-                                                                    <option value="Crown" {{ ($existingRecord->procedure_type ?? old("records.{$index}.procedure_type")) == 'Crown' ? 'selected' : '' }}>Crown</option>
-                                                                    <option value="Bridge" {{ ($existingRecord->procedure_type ?? old("records.{$index}.procedure_type")) == 'Bridge' ? 'selected' : '' }}>Bridge</option>
-                                                                    <option value="Dentures" {{ ($existingRecord->procedure_type ?? old("records.{$index}.procedure_type")) == 'Dentures' ? 'selected' : '' }}>Dentures</option>
-                                                                    <option value="Orthodontic Treatment" {{ ($existingRecord->procedure_type ?? old("records.{$index}.procedure_type")) == 'Orthodontic Treatment' ? 'selected' : '' }}>Orthodontic Treatment</option>
-                                                                    <option value="Other" {{ ($existingRecord->procedure_type ?? old("records.{$index}.procedure_type")) == 'Other' ? 'selected' : '' }}>Other</option>
+                                                                <select class="form-select form-select-sm" name="records[{{ $index }}][injection_type]">
+                                                                    <option value="Intramuscular" {{ ($existingRecord->injection_type ?? old("records.{$index}.injection_type")) == 'Intramuscular' ? 'selected' : '' }}>Intramuscular</option>
+                                                                    <option value="Intravenous" {{ ($existingRecord->injection_type ?? old("records.{$index}.injection_type")) == 'Intravenous' ? 'selected' : '' }}>Intravenous</option>
+                                                                    <option value="Subcutaneous" {{ ($existingRecord->injection_type ?? old("records.{$index}.injection_type")) == 'Subcutaneous' ? 'selected' : '' }}>Subcutaneous</option>
+                                                                    <option value="Intradermal" {{ ($existingRecord->injection_type ?? old("records.{$index}.injection_type")) == 'Intradermal' ? 'selected' : '' }}>Intradermal</option>
+                                                                    <option value="Other" {{ ($existingRecord->injection_type ?? old("records.{$index}.injection_type")) == 'Other' ? 'selected' : '' }}>Other</option>
                                                                 </select>
                                                             @else
-                                                                <select class="form-select form-select-sm" name="records[{{ $index }}][procedure_type]">
+                                                                <select class="form-select form-select-sm" name="records[{{ $index }}][injection_type]">
                                                                     <option value="">Select...</option>
-                                                                    <option value="Cleaning" {{ old("records.{$index}.procedure_type") == 'Cleaning' ? 'selected' : '' }}>Cleaning</option>
-                                                                    <option value="Filling" {{ old("records.{$index}.procedure_type") == 'Filling' ? 'selected' : '' }}>Filling</option>
-                                                                    <option value="Extraction" {{ old("records.{$index}.procedure_type") == 'Extraction' ? 'selected' : '' }}>Extraction</option>
-                                                                    <option value="Root Canal" {{ old("records.{$index}.procedure_type") == 'Root Canal' ? 'selected' : '' }}>Root Canal</option>
-                                                                    <option value="Crown" {{ old("records.{$index}.procedure_type") == 'Crown' ? 'selected' : '' }}>Crown</option>
-                                                                    <option value="Bridge" {{ old("records.{$index}.procedure_type") == 'Bridge' ? 'selected' : '' }}>Bridge</option>
-                                                                    <option value="Dentures" {{ old("records.{$index}.procedure_type") == 'Dentures' ? 'selected' : '' }}>Dentures</option>
-                                                                    <option value="Orthodontic Treatment" {{ old("records.{$index}.procedure_type") == 'Orthodontic Treatment' ? 'selected' : '' }}>Orthodontic Treatment</option>
-                                                                    <option value="Other" {{ old("records.{$index}.procedure_type") == 'Other' ? 'selected' : '' }}>Other</option>
+                                                                    <option value="Intramuscular" {{ old("records.{$index}.injection_type") == 'Intramuscular' ? 'selected' : '' }}>Intramuscular</option>
+                                                                    <option value="Intravenous" {{ old("records.{$index}.injection_type") == 'Intravenous' ? 'selected' : '' }}>Intravenous</option>
+                                                                    <option value="Subcutaneous" {{ old("records.{$index}.injection_type") == 'Subcutaneous' ? 'selected' : '' }}>Subcutaneous</option>
+                                                                    <option value="Intradermal" {{ old("records.{$index}.injection_type") == 'Intradermal' ? 'selected' : '' }}>Intradermal</option>
+                                                                    <option value="Other" {{ old("records.{$index}.injection_type") == 'Other' ? 'selected' : '' }}>Other</option>
                                                                 </select>
                                                             @endif
                                                         </td>
@@ -159,8 +156,8 @@
                                                         </td>
                                                         <td>
                                                             @if($existingRecord)
-                                                                <a href="{{ route('hospital.dental.show', $existingRecord->id) }}" class="btn btn-sm btn-info" target="_blank">
-                                                                    <i class="bx bx-show me-1"></i>View
+                                                                <a href="{{ route('hospital.injection.show', $existingRecord->id) }}" class="btn btn-sm btn-danger" target="_blank">
+                                                                    <i class="bx bx-show"></i>
                                                                 </a>
                                                             @endif
                                                         </td>
@@ -172,14 +169,14 @@
 
                                     <div class="alert alert-warning">
                                         <i class="bx bx-info-circle me-2"></i>
-                                        <strong>Note:</strong> Select procedure type and status for each service. Mark services as "Completed" when procedures are finished. Once all services are completed, the visit will be marked as completed.
+                                        <strong>Note:</strong> Select injection type and status for each item. Mark items as "Completed" when injections are finished. Once all items are completed, the visit will be marked as completed.
                                     </div>
 
                                     <div class="d-flex justify-content-between mt-4">
-                                        <a href="{{ route('hospital.dental.index') }}" class="btn btn-secondary">
+                                        <a href="{{ route('hospital.injection.index') }}" class="btn btn-secondary">
                                             <i class="bx bx-arrow-back me-1"></i>Cancel
                                         </a>
-                                        <button type="submit" class="btn btn-primary">
+                                        <button type="submit" class="btn btn-danger">
                                             <i class="bx bx-save me-1"></i>Save Records
                                         </button>
                                     </div>
@@ -187,11 +184,11 @@
                             @else
                                 <div class="alert alert-warning">
                                     <i class="bx bx-info-circle me-2"></i>
-                                    <strong>No Dental Services Found:</strong> No dental services have been ordered by the doctor for this visit. Please contact the doctor to create a dental bill first.
+                                    <strong>No Injection Items Found:</strong> No injection services/products have been ordered by the doctor for this visit. Please contact the doctor to create an injection bill first.
                                 </div>
                                 <div class="mt-3">
-                                    <a href="{{ route('hospital.dental.index') }}" class="btn btn-secondary">
-                                        <i class="bx bx-arrow-back me-1"></i>Back to Dental Dashboard
+                                    <a href="{{ route('hospital.injection.index') }}" class="btn btn-secondary">
+                                        <i class="bx bx-arrow-back me-1"></i>Back to Injection Dashboard
                                     </a>
                                 </div>
                             @endif

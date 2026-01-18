@@ -34,7 +34,7 @@
                                 @if($dispensation->status === 'pending')
                                     <form action="{{ route('hospital.pharmacy.dispense', $dispensation->id) }}" method="POST" class="d-inline" id="dispenseForm">
                                         @csrf
-                                        <button type="submit" class="btn btn-sm btn-success" onclick="return confirm('Are you sure you want to dispense these medications? This will update stock levels.')">
+                                        <button type="submit" class="btn btn-sm btn-success" id="dispenseBtn">
                                             <i class="bx bx-check me-1"></i>Dispense Medications
                                         </button>
                                     </form>
@@ -197,3 +197,54 @@
         </div>
     </div>
 @endsection
+
+@push('scripts')
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const dispenseForm = document.getElementById('dispenseForm');
+    const dispenseBtn = document.getElementById('dispenseBtn');
+    
+    if (dispenseForm && dispenseBtn) {
+        console.log('Dispense form and button found');
+        
+        dispenseBtn.addEventListener('click', function(e) {
+            e.preventDefault();
+            console.log('Dispense button clicked');
+            
+            // Check if Swal is available
+            if (typeof Swal === 'undefined') {
+                console.error('SweetAlert2 is not loaded');
+                if (confirm('Are you sure you want to dispense these medications? This will update stock levels and create GL transactions.')) {
+                    dispenseForm.submit();
+                }
+                return;
+            }
+            
+            Swal.fire({
+                title: 'Confirm Dispensation',
+                text: 'Are you sure you want to dispense these medications? This will update stock levels and create GL transactions.',
+                icon: 'question',
+                showCancelButton: true,
+                confirmButtonColor: '#28a745',
+                cancelButtonColor: '#6c757d',
+                confirmButtonText: 'Yes, Dispense',
+                cancelButtonText: 'Cancel',
+                reverseButtons: true
+            }).then((result) => {
+                if (result.isConfirmed) {
+                    console.log('User confirmed, submitting form');
+                    dispenseForm.submit();
+                } else {
+                    console.log('User cancelled');
+                }
+            });
+        });
+    } else {
+        console.log('Dispense form or button not found', {
+            form: !!dispenseForm,
+            button: !!dispenseBtn
+        });
+    }
+});
+</script>
+@endpush

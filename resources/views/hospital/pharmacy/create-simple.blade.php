@@ -100,8 +100,8 @@
                                                                     <small class="text-muted">{{ $med['description'] ?? 'No dosage instructions' }}</small>
                                                                 </td>
                                                                 <td>
-                                                                    <input type="hidden" name="items[{{ $index }}][quantity_prescribed]" value="{{ (int)$med['quantity'] }}">
-                                                                    <span class="fw-bold">{{ number_format($med['quantity'], 0) }} {{ $med['unit_of_measure'] }}</span>
+                                                                    <input type="hidden" name="items[{{ $index }}][quantity_prescribed]" value="{{ $med['quantity'] }}">
+                                                                    <span class="fw-bold">{{ $med['quantity'] }} {{ $med['unit_of_measure'] }}</span>
                                                                 </td>
                                                                 <td>
                                                                     @if($med['track_stock'])
@@ -115,10 +115,9 @@
                                                                 <td>
                                                                     <input type="number" class="form-control" 
                                                                            name="items[{{ $index }}][quantity_dispensed]" 
-                                                                           value="{{ (int)$med['quantity'] }}" 
+                                                                           value="{{ $med['quantity'] }}" 
                                                                            min="0" 
-                                                                           max="{{ (int)$med['quantity'] }}" 
-                                                                           step="1"
+                                                                           max="{{ $med['quantity'] }}" 
                                                                            required
                                                                            data-stock="{{ $med['stock'] }}"
                                                                            data-track-stock="{{ $med['track_stock'] ? 1 : 0 }}"

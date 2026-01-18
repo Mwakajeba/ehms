@@ -11,6 +11,9 @@ use App\Models\Hospital\VisitDepartment;
 use App\Models\Hospital\HospitalDepartment;
 use App\Models\Hospital\PatientDeletionRequest;
 use App\Models\Inventory\Item;
+use App\Models\Customer;
+use App\Models\Sales\SalesInvoice;
+use App\Models\Sales\SalesInvoiceItem;
 use App\Services\Hospital\MrnService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -317,54 +320,80 @@ class ReceptionController extends Controller
                 ]);
             }
 
-            // Create pre-bill if services are selected
+            // Create pre-bill if services are selected (using SalesInvoice structure)
             if (!empty($validated['services'])) {
-                $billNumber = 'BILL-' . now()->format('Ymd') . '-' . str_pad(VisitBill::whereDate('created_at', today())->count() + 1, 4, '0', STR_PAD_LEFT);
-                
-                $bill = VisitBill::create([
-                    'bill_number' => $billNumber,
-                    'visit_id' => $visit->id,
-                    'patient_id' => $patient->id,
-                    'bill_type' => 'pre_bill',
-                    'subtotal' => 0,
-                    'total' => 0,
-                    'payment_status' => 'pending',
-                    'clearance_status' => 'pending',
-                    'company_id' => $companyId,
-                    'branch_id' => $branchId,
-                    'created_by' => $user->id,
-                ]);
+                // Filter out empty service selections
+                $validServices = array_filter($validated['services'], function($serviceData) {
+                    return !empty($serviceData['service_id']);
+                });
 
-                $subtotal = 0;
-                foreach ($validated['services'] as $serviceData) {
-                    if (empty($serviceData['service_id'])) {
-                        continue; // Skip empty service selections
-                    }
-                    
-                    $service = Item::find($serviceData['service_id']);
-                    if (!$service || $service->item_type !== 'service') {
-                        continue; // Skip if not a service
-                    }
-                    
-                    $quantity = $serviceData['quantity'] ?? 1;
-                    $itemTotal = $service->unit_price * $quantity;
-                    $subtotal += $itemTotal;
+                if (!empty($validServices)) {
+                    // Get or create customer from patient
+                    $customer = $this->getOrCreateCustomerFromPatient($patient);
 
-                    VisitBillItem::create([
-                        'bill_id' => $bill->id,
-                        'item_type' => 'service',
-                        'service_id' => $service->id,
-                        'item_name' => $service->name,
-                        'quantity' => $quantity,
-                        'unit_price' => $service->unit_price,
-                        'total' => $itemTotal,
+                    // Create sales invoice for pre-billing services
+                    $invoice = SalesInvoice::create([
+                        'customer_id' => $customer->id,
+                        'invoice_date' => now(),
+                        'due_date' => now(), // Pre-bills are due immediately
+                        'status' => 'draft',
+                        'currency' => 'TZS',
+                        'exchange_rate' => 1.000000,
+                        'branch_id' => $branchId,
+                        'company_id' => $companyId,
+                        'created_by' => $user->id,
+                        'notes' => "Pre-billing services for Visit #{$visit->visit_number} - Patient: {$patient->full_name}",
                     ]);
-                }
 
-                $bill->subtotal = $subtotal;
-                $bill->total = $subtotal;
-                $bill->balance = $subtotal;
-                $bill->save();
+                    $subtotal = 0;
+
+                    // Add services to invoice
+                    foreach ($validServices as $serviceData) {
+                        $service = Item::find($serviceData['service_id']);
+                        if (!$service || $service->item_type !== 'service') {
+                            continue;
+                        }
+
+                        $quantity = $serviceData['quantity'] ?? 1;
+                        $unitPrice = $service->unit_price;
+                        $lineTotal = $unitPrice * $quantity;
+                        $subtotal += $lineTotal;
+
+                        // Create invoice item
+                        SalesInvoiceItem::create([
+                            'sales_invoice_id' => $invoice->id,
+                            'inventory_item_id' => $service->id,
+                            'item_name' => $service->name,
+                            'item_code' => $service->code,
+                            'description' => $service->description,
+                            'unit_of_measure' => $service->unit_of_measure ?? 'Unit',
+                            'quantity' => $quantity,
+                            'unit_price' => $unitPrice,
+                            'line_total' => $lineTotal,
+                            'vat_type' => 'no_vat',
+                            'vat_rate' => 0,
+                            'vat_amount' => 0,
+                            'discount_type' => null,
+                            'discount_rate' => 0,
+                            'discount_amount' => 0,
+                        ]);
+                    }
+
+                    // Update invoice totals
+                    $invoice->subtotal = $subtotal;
+                    $invoice->vat_amount = 0;
+                    $invoice->discount_amount = 0;
+                    $invoice->total_amount = $subtotal;
+                    $invoice->balance_due = $subtotal;
+                    $invoice->status = 'sent'; // Mark as sent to cashier
+                    $invoice->save();
+
+                    // Create GL transactions (double-entry accounting)
+                    $invoice->createDoubleEntryTransactions();
+
+                    // Link invoice to visit for reference
+                    $visit->update(['notes' => ($visit->notes ?? '') . "\n\nPre-billing Invoice: {$invoice->invoice_number}"]);
+                }
             }
 
             DB::commit();
@@ -388,12 +417,56 @@ class ReceptionController extends Controller
             'visitDepartments.servedBy',
             'bills.items',
             'triageVitals',
-            'consultation',
+            'consultation.doctor',
+            'labResults.service',
             'labResults.performedBy',
+            'ultrasoundResults.service',
             'ultrasoundResults.performedBy',
+            'dentalRecords.service',
+            'dentalRecords.performedBy',
+            'vaccinationRecords.item',
+            'vaccinationRecords.performedBy',
+            'injectionRecords.item',
+            'injectionRecords.performedBy',
+            'diagnosisExplanation',
+            'pharmacyDispensations.items.product',
+            'pharmacyDispensations.dispensedBy',
         ])->findOrFail($id);
 
-        return view('hospital.reception.visits.show', compact('visit'));
+        // Get paid invoices for this visit
+        $paidInvoices = collect();
+        $patient = $visit->patient;
+        
+        if ($patient) {
+            $customer = Customer::where('company_id', $patient->company_id)
+                ->where(function ($q) use ($patient) {
+                    if ($patient->phone) {
+                        $q->where('phone', $patient->phone);
+                    }
+                    if ($patient->email) {
+                        $q->orWhere('email', $patient->email);
+                    }
+                    $q->orWhere('name', $patient->full_name);
+                })
+                ->first();
+            
+            if ($customer) {
+                // Get all paid invoices for this visit (check notes for visit number)
+                $paidInvoices = SalesInvoice::where('customer_id', $customer->id)
+                    ->where('company_id', $patient->company_id)
+                    ->where('branch_id', $patient->branch_id)
+                    ->where('status', 'paid')
+                    ->where(function ($q) use ($visit) {
+                        $q->where('notes', 'like', "%Visit #{$visit->visit_number}%")
+                          ->orWhere('notes', 'like', "%for Visit #{$visit->visit_number}%");
+                    })
+                    ->with(['items.inventoryItem', 'customer', 'receipts'])
+                    ->orderBy('created_at', 'desc')
+                    ->get();
+            }
+        }
+
+        return view('hospital.reception.visits.show', compact('visit', 'paidInvoices'));
     }
 
     /**
@@ -580,5 +653,51 @@ class ReceptionController extends Controller
                 'service_time' => $currentDepartment->service_time_formatted,
             ] : null,
         ]);
+    }
+
+    /**
+     * Get or create customer from patient
+     */
+    private function getOrCreateCustomerFromPatient($patient)
+    {
+        // Check if customer already exists with same phone, email, or name
+        $customer = Customer::where('company_id', $patient->company_id)
+            ->where(function ($q) use ($patient) {
+                if ($patient->phone) {
+                    $q->where('phone', $patient->phone);
+                }
+                if ($patient->email) {
+                    $q->orWhere('email', $patient->email);
+                }
+                // If no phone or email, search by name to avoid duplicates
+                if (!$patient->phone && !$patient->email) {
+                    $q->orWhere('name', $patient->full_name);
+                }
+            })
+            ->first();
+
+        if ($customer) {
+            return $customer;
+        }
+
+        // Create new customer from patient
+        // Use placeholder phone if patient phone is null (Customer requires phone)
+        // Format: MRN-based or timestamp-based to ensure uniqueness
+        $phone = $patient->phone ?? ('000' . str_pad($patient->id ?? time(), 9, '0', STR_PAD_LEFT)); // 12 digits
+        
+        // Generate customerNo explicitly (same as CustomerController)
+        $customerNo = 100000 + (Customer::max('id') ?? 0) + 1;
+        
+        $customer = Customer::create([
+            'customerNo' => $customerNo,
+            'name' => $patient->full_name,
+            'phone' => $phone,
+            'email' => $patient->email,
+            'company_id' => $patient->company_id,
+            'branch_id' => $patient->branch_id,
+            'status' => 'active',
+        ]);
+
+        return $customer;
     }
 }

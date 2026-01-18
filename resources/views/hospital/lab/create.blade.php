@@ -1,6 +1,6 @@
 @extends('layouts.main')
 
-@section('title', 'Record Lab Test')
+@section('title', 'Record Lab Test Results')
 
 @section('content')
     <div class="page-wrapper">
@@ -9,55 +9,18 @@
                 ['label' => 'Dashboard', 'url' => route('dashboard'), 'icon' => 'bx bx-home'],
                 ['label' => 'Hospital Management', 'url' => route('hospital.index'), 'icon' => 'bx bx-plus-medical'],
                 ['label' => 'Lab', 'url' => route('hospital.lab.index'), 'icon' => 'bx bx-test-tube'],
-                ['label' => 'Record Test', 'url' => '#', 'icon' => 'bx bx-plus']
+                ['label' => 'Record Results', 'url' => '#', 'icon' => 'bx bx-edit']
             ]" />
-            <h6 class="mb-0 text-uppercase">RECORD LAB TEST</h6>
+            <h6 class="mb-0 text-uppercase">RECORD LAB TEST RESULTS</h6>
             <hr />
 
             <div class="row">
                 <div class="col-12">
                     <div class="card">
+                        <div class="card-header bg-primary text-white">
+                            <h5 class="mb-0"><i class="bx bx-user me-2"></i>Patient: {{ $visit->patient->full_name }} (MRN: {{ $visit->patient->mrn }})</h5>
+                        </div>
                         <div class="card-body">
-                            <div class="card-title d-flex align-items-center">
-                                <div><i class="bx bx-test-tube me-1 font-22 text-primary"></i></div>
-                                <h5 class="mb-0 text-primary">Lab Test for {{ $visit->patient->full_name }}</h5>
-                            </div>
-                            <hr />
-
-                            <!-- Patient Info -->
-                            <div class="alert alert-info mb-4">
-                                <div class="row">
-                                    <div class="col-md-6">
-                                        <strong>Patient:</strong> {{ $visit->patient->full_name }}<br>
-                                        <strong>MRN:</strong> {{ $visit->patient->mrn }}<br>
-                                        <strong>Age:</strong> {{ $visit->patient->age ? $visit->patient->age . ' years' : 'N/A' }}
-                                    </div>
-                                    <div class="col-md-6">
-                                        <strong>Visit #:</strong> {{ $visit->visit_number }}<br>
-                                        <strong>Visit Type:</strong> {{ ucfirst(str_replace('_', ' ', $visit->visit_type)) }}<br>
-                                        <strong>Existing Tests:</strong> {{ $visit->labResults->count() }}
-                                    </div>
-                                </div>
-                            </div>
-
-                            @if($visit->labResults->count() > 0)
-                                <div class="alert alert-secondary mb-4">
-                                    <h6 class="mb-2"><i class="bx bx-list-ul me-2"></i>Previous Tests:</h6>
-                                    <ul class="mb-0">
-                                        @foreach($visit->labResults as $result)
-                                            <li>
-                                                {{ $result->test_name }} - 
-                                                @if($result->result_status === 'ready')
-                                                    <span class="badge bg-success">Ready</span>
-                                                @else
-                                                    <span class="badge bg-warning">Pending</span>
-                                                @endif
-                                            </li>
-                                        @endforeach
-                                    </ul>
-                                </div>
-                            @endif
-
                             @if($errors->any())
                                 <div class="alert alert-danger">
                                     <ul class="mb-0">
@@ -68,120 +31,115 @@
                                 </div>
                             @endif
 
-                            <form action="{{ route('hospital.lab.store', $visit->id) }}" method="POST">
-                                @csrf
+                            @if($labInvoice && $labInvoiceItems->count() > 0)
+                                <div class="alert alert-info mb-4">
+                                    <i class="bx bx-info-circle me-2"></i>
+                                    <strong>Lab Tests from Doctor:</strong> The following tests were ordered by the doctor. Please add results for each test.
+                                </div>
 
-                                <div class="row">
-                                    <div class="col-md-6">
-                                        <div class="mb-3">
-                                            <label for="service_id" class="form-label fw-bold">Select Test Service</label>
-                                            <select class="form-select @error('service_id') is-invalid @enderror" 
-                                                    id="service_id" name="service_id" onchange="selectTest(this)">
-                                                <option value="">Select a test service...</option>
-                                                @foreach($labTests as $test)
-                                                    <option value="{{ $test->id }}" 
-                                                            data-name="{{ $test->name }}"
-                                                            {{ old('service_id') == $test->id ? 'selected' : '' }}>
-                                                        {{ $test->name }} - {{ number_format($test->unit_price, 2) }} TZS
-                                                    </option>
+                                <form action="{{ route('hospital.lab.store', $visit->id) }}" method="POST" id="lab-results-form">
+                                    @csrf
+
+                                    <div class="table-responsive">
+                                        <table class="table table-bordered">
+                                            <thead class="table-light">
+                                                <tr>
+                                                    <th width="20%">Test Name</th>
+                                                    <th width="15%">Result Value</th>
+                                                    <th width="10%">Unit</th>
+                                                    <th width="15%">Reference Range</th>
+                                                    <th width="10%">Status</th>
+                                                    <th width="15%">Result Status</th>
+                                                    <th width="15%">Notes</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                @foreach($labInvoiceItems as $index => $item)
+                                                    @php
+                                                        $serviceId = $item->inventory_item_id;
+                                                        $service = $item->inventoryItem ?? null;
+                                                        $existingResult = $existingResults->get($serviceId);
+                                                    @endphp
+                                                    <tr>
+                                                        <td>
+                                                            <input type="hidden" name="results[{{ $index }}][service_id]" value="{{ $serviceId }}">
+                                                            <strong>{{ $item->item_name }}</strong>
+                                                            <br>
+                                                            <small class="text-muted">{{ $service->code ?? $item->item_code ?? 'N/A' }}</small>
+                                                        </td>
+                                                        <td>
+                                                            <input type="text" 
+                                                                   class="form-control form-control-sm" 
+                                                                   name="results[{{ $index }}][result_value]" 
+                                                                   value="{{ $existingResult->result_value ?? old("results.{$index}.result_value") }}"
+                                                                   placeholder="e.g., 120, Negative">
+                                                        </td>
+                                                        <td>
+                                                            <input type="text" 
+                                                                   class="form-control form-control-sm" 
+                                                                   name="results[{{ $index }}][unit]" 
+                                                                   value="{{ $existingResult->unit ?? old("results.{$index}.unit") }}"
+                                                                   placeholder="mg/dL">
+                                                        </td>
+                                                        <td>
+                                                            <input type="text" 
+                                                                   class="form-control form-control-sm" 
+                                                                   name="results[{{ $index }}][reference_range]" 
+                                                                   value="{{ $existingResult->reference_range ?? old("results.{$index}.reference_range") }}"
+                                                                   placeholder="70-100">
+                                                        </td>
+                                                        <td>
+                                                            <select class="form-select form-select-sm" name="results[{{ $index }}][status]">
+                                                                <option value="">Select</option>
+                                                                <option value="normal" {{ ($existingResult->status ?? old("results.{$index}.status")) == 'normal' ? 'selected' : '' }}>Normal</option>
+                                                                <option value="abnormal" {{ ($existingResult->status ?? old("results.{$index}.status")) == 'abnormal' ? 'selected' : '' }}>Abnormal</option>
+                                                                <option value="critical" {{ ($existingResult->status ?? old("results.{$index}.status")) == 'critical' ? 'selected' : '' }}>Critical</option>
+                                                            </select>
+                                                        </td>
+                                                        <td>
+                                                            <select class="form-select form-select-sm" name="results[{{ $index }}][result_status]" required>
+                                                                <option value="pending" {{ ($existingResult->result_status ?? old("results.{$index}.result_status", 'pending')) == 'pending' ? 'selected' : '' }}>Pending</option>
+                                                                <option value="ready" {{ ($existingResult->result_status ?? old("results.{$index}.result_status")) == 'ready' ? 'selected' : '' }}>Ready</option>
+                                                            </select>
+                                                        </td>
+                                                        <td>
+                                                            <input type="hidden" name="results[{{ $index }}][test_name]" value="{{ $item->item_name }}">
+                                                            <textarea class="form-control form-control-sm" 
+                                                                      name="results[{{ $index }}][notes]" 
+                                                                      rows="2" 
+                                                                      placeholder="Notes...">{{ $existingResult->notes ?? old("results.{$index}.notes") }}</textarea>
+                                                        </td>
+                                                    </tr>
                                                 @endforeach
-                                            </select>
-                                            @error('service_id')
-                                                <div class="invalid-feedback">{{ $message }}</div>
-                                            @enderror
-                                        </div>
-                                    </div>
-                                    <div class="col-md-6">
-                                        <div class="mb-3">
-                                            <label for="test_name" class="form-label fw-bold">Test Name <span class="text-danger">*</span></label>
-                                            <input type="text" class="form-control @error('test_name') is-invalid @enderror" 
-                                                   id="test_name" name="test_name" value="{{ old('test_name') }}" required>
-                                            @error('test_name')
-                                                <div class="invalid-feedback">{{ $message }}</div>
-                                            @enderror
-                                            <div class="form-text">Or enter test name manually</div>
-                                        </div>
+                                            </tbody>
+                                        </table>
                                     </div>
 
-                                    <div class="col-md-6">
-                                        <div class="mb-3">
-                                            <label for="result_status" class="form-label fw-bold">Result Status <span class="text-danger">*</span></label>
-                                            <select class="form-select @error('result_status') is-invalid @enderror" 
-                                                    id="result_status" name="result_status" required>
-                                                <option value="pending" {{ old('result_status', 'pending') == 'pending' ? 'selected' : '' }}>Pending</option>
-                                                <option value="ready" {{ old('result_status') == 'ready' ? 'selected' : '' }}>Ready</option>
-                                            </select>
-                                            @error('result_status')
-                                                <div class="invalid-feedback">{{ $message }}</div>
-                                            @enderror
-                                            <div class="form-text">Select "Ready" if test is completed and results are available</div>
-                                        </div>
+                                    <div class="alert alert-warning mt-3">
+                                        <i class="bx bx-info-circle me-2"></i>
+                                        <strong>Note:</strong> Mark tests as "Ready" when results are complete. Once all tests are marked as "Ready", the patient will be automatically sent back to the doctor.
                                     </div>
+
+                                    <div class="d-flex justify-content-between mt-4">
+                                        <a href="{{ route('hospital.lab.index') }}" class="btn btn-secondary">
+                                            <i class="bx bx-arrow-back me-1"></i>Cancel
+                                        </a>
+                                        <button type="submit" class="btn btn-primary">
+                                            <i class="bx bx-save me-1"></i>Save Results
+                                        </button>
+                                    </div>
+                                </form>
+                            @else
+                                <div class="alert alert-warning">
+                                    <i class="bx bx-info-circle me-2"></i>
+                                    <strong>No Lab Tests Found:</strong> No lab tests have been ordered by the doctor for this visit. Please contact the doctor to create a lab test bill first.
                                 </div>
-
-                                <div class="row">
-                                    <div class="col-md-4">
-                                        <div class="mb-3">
-                                            <label for="result_value" class="form-label fw-bold">Result Value</label>
-                                            <input type="text" class="form-control" id="result_value" name="result_value" 
-                                                   value="{{ old('result_value') }}" placeholder="e.g., 120, Negative, Positive">
-                                        </div>
-                                    </div>
-
-                                    <div class="col-md-4">
-                                        <div class="mb-3">
-                                            <label for="unit" class="form-label fw-bold">Unit</label>
-                                            <input type="text" class="form-control" id="unit" name="unit" 
-                                                   value="{{ old('unit') }}" placeholder="e.g., mg/dL, %, cells/μL">
-                                        </div>
-                                    </div>
-
-                                    <div class="col-md-4">
-                                        <div class="mb-3">
-                                            <label for="status" class="form-label fw-bold">Result Status</label>
-                                            <select class="form-select" id="status" name="status">
-                                                <option value="">Select Status</option>
-                                                <option value="normal" {{ old('status') == 'normal' ? 'selected' : '' }}>Normal</option>
-                                                <option value="abnormal" {{ old('status') == 'abnormal' ? 'selected' : '' }}>Abnormal</option>
-                                                <option value="critical" {{ old('status') == 'critical' ? 'selected' : '' }}>Critical</option>
-                                            </select>
-                                        </div>
-                                    </div>
+                                <div class="mt-3">
+                                    <a href="{{ route('hospital.lab.index') }}" class="btn btn-secondary">
+                                        <i class="bx bx-arrow-back me-1"></i>Back to Lab Dashboard
+                                    </a>
                                 </div>
-
-                                <div class="row">
-                                    <div class="col-md-6">
-                                        <div class="mb-3">
-                                            <label for="reference_range" class="form-label fw-bold">Reference Range</label>
-                                            <input type="text" class="form-control" id="reference_range" name="reference_range" 
-                                                   value="{{ old('reference_range') }}" placeholder="e.g., 70-100 mg/dL, < 5.0">
-                                        </div>
-                                    </div>
-                                </div>
-
-                                <div class="row">
-                                    <div class="col-12">
-                                        <div class="mb-3">
-                                            <label for="notes" class="form-label fw-bold">Notes</label>
-                                            <textarea class="form-control" id="notes" name="notes" rows="3" 
-                                                      placeholder="Additional notes or observations...">{{ old('notes') }}</textarea>
-                                        </div>
-                                    </div>
-                                </div>
-
-                                <div class="row mt-4">
-                                    <div class="col-12">
-                                        <div class="d-flex justify-content-between">
-                                            <a href="{{ route('hospital.lab.index') }}" class="btn btn-secondary">
-                                                <i class="bx bx-arrow-back me-1"></i>Cancel
-                                            </a>
-                                            <button type="submit" class="btn btn-primary">
-                                                <i class="bx bx-save me-1"></i>Save Test Result
-                                            </button>
-                                        </div>
-                                    </div>
-                                </div>
-                            </form>
+                            @endif
                         </div>
                     </div>
                 </div>
@@ -189,17 +147,3 @@
         </div>
     </div>
 @endsection
-
-@push('scripts')
-<script>
-function selectTest(select) {
-    if (select.value) {
-        const selectedOption = select.options[select.selectedIndex];
-        const testName = selectedOption.getAttribute('data-name');
-        if (testName) {
-            document.getElementById('test_name').value = testName;
-        }
-    }
-}
-</script>
-@endpush

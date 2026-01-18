@@ -7,6 +7,8 @@ use App\Models\Hospital\Visit;
 use App\Models\Hospital\VisitDepartment;
 use App\Models\Hospital\UltrasoundResult;
 use App\Models\Inventory\Item;
+use App\Models\Customer;
+use App\Models\Sales\SalesInvoice;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
@@ -23,7 +25,7 @@ class UltrasoundController extends Controller
         $companyId = $user->company_id;
         $branchId = session('branch_id') ?? $user->branch_id;
 
-        // Get visits waiting for ultrasound (bills must be cleared)
+        // Get visits waiting for ultrasound (bills must be cleared OR paid SalesInvoice)
         $waitingVisits = Visit::with(['patient', 'visitDepartments.department', 'bills'])
             ->where('company_id', $companyId)
             ->where('branch_id', $branchId)
@@ -32,8 +34,26 @@ class UltrasoundController extends Controller
                     $query->where('type', 'ultrasound');
                 })->where('status', 'waiting');
             })
-            ->whereHas('bills', function ($q) {
-                $q->where('clearance_status', 'cleared');
+            ->where(function ($query) use ($companyId, $branchId) {
+                // Either has cleared VisitBill (old flow)
+                $query->whereHas('bills', function ($q) {
+                    $q->where('clearance_status', 'cleared');
+                })
+                // OR has Customer with paid SalesInvoice matching patient (new pre-billing flow)
+                ->orWhereExists(function ($subQuery) use ($companyId, $branchId) {
+                    $subQuery->select(DB::raw(1))
+                        ->from('sales_invoices')
+                        ->join('customers', 'sales_invoices.customer_id', '=', 'customers.id')
+                        ->join('patients', 'patients.id', '=', 'visits.patient_id')
+                        ->where('sales_invoices.company_id', $companyId)
+                        ->where('sales_invoices.branch_id', $branchId)
+                        ->where('sales_invoices.status', 'paid')
+                        ->where(function ($q) {
+                            $q->whereColumn('customers.phone', 'patients.phone')
+                                ->orWhereColumn('customers.email', 'patients.email')
+                                ->orWhereColumn('customers.name', DB::raw("CONCAT(patients.first_name, ' ', patients.last_name)"));
+                        });
+                });
             })
             ->orderBy('visit_date', 'asc')
             ->get();
@@ -85,11 +105,37 @@ class UltrasoundController extends Controller
             abort(403, 'Unauthorized access to visit.');
         }
 
-        // Check if bill is cleared
+        // Check if bill is cleared (VisitBill) OR has paid SalesInvoice (pre-billing)
         $hasClearedBill = $visit->bills()->where('clearance_status', 'cleared')->exists();
-        if (!$hasClearedBill) {
+        
+        // Check if patient has paid SalesInvoice (match Customer by name/phone/email)
+        $patient = $visit->patient;
+        $hasPaidInvoice = false;
+        if ($patient) {
+            $customer = Customer::where('company_id', $patient->company_id)
+                ->where(function ($q) use ($patient) {
+                    if ($patient->phone) {
+                        $q->where('phone', $patient->phone);
+                    }
+                    if ($patient->email) {
+                        $q->orWhere('email', $patient->email);
+                    }
+                    $q->orWhere('name', $patient->full_name);
+                })
+                ->first();
+            
+            if ($customer) {
+                $hasPaidInvoice = SalesInvoice::where('customer_id', $customer->id)
+                    ->where('company_id', $patient->company_id)
+                    ->where('branch_id', $patient->branch_id)
+                    ->where('status', 'paid')
+                    ->exists();
+            }
+        }
+        
+        if (!$hasClearedBill && !$hasPaidInvoice) {
             return redirect()->route('hospital.ultrasound.index')
-                ->withErrors(['error' => 'Patient bill must be cleared before ultrasound examination.']);
+                ->withErrors(['error' => 'Patient bill must be cleared or paid before ultrasound examination.']);
         }
 
         // Get ultrasound services from inventory_items
