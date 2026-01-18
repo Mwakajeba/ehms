@@ -145,7 +145,7 @@
                                 <!-- Ultrasound -->
                                 <div class="col-md-6 col-lg-4 mb-4">
                                     <div class="card module-card h-100">
-                                        <div class="count-badge bg-secondary">-</div>
+                                        <div class="count-badge bg-secondary">{{ number_format($stats['visits']['ultrasound_pending'] ?? 0) }}</div>
                                         <div class="card-body text-center">
                                             <div class="mb-3">
                                                 <i class="bx bx-scan text-secondary" style="font-size: 3rem;"></i>
@@ -179,7 +179,7 @@
                                 <!-- Dental -->
                                 <div class="col-md-6 col-lg-4 mb-4">
                                     <div class="card module-card h-100">
-                                        <div class="count-badge bg-info">-</div>
+                                        <div class="count-badge bg-info">{{ number_format($stats['visits']['dental_pending'] ?? 0) }}</div>
                                         <div class="card-body text-center">
                                             <div class="mb-3">
                                                 <i class="bx bx-smile text-info" style="font-size: 3rem;"></i>
@@ -213,15 +213,15 @@
                                 <!-- Vaccine -->
                                 <div class="col-md-6 col-lg-4 mb-4">
                                     <div class="card module-card h-100">
-                                        <div class="count-badge bg-warning">-</div>
+                                        <div class="count-badge bg-warning">{{ number_format($stats['visits']['vaccination_pending'] ?? 0) }}</div>
                                         <div class="card-body text-center">
                                             <div class="mb-3">
                                                 <i class="bx bx-shield text-warning" style="font-size: 3rem;"></i>
                                             </div>
-                                            <h5 class="card-title">Vaccine</h5>
+                                            <h5 class="card-title">Vaccination</h5>
                                             <p class="card-text">Vaccination tracking, vaccine administration, and immunization records.</p>
-                                            <a href="{{ route('hospital.vaccine.index') }}" class="btn btn-warning">
-                                                <i class="bx bx-shield me-1"></i>Go to Vaccine
+                                            <a href="{{ route('hospital.vaccination.index') }}" class="btn btn-warning">
+                                                <i class="bx bx-shield me-1"></i>Go to Vaccination
                                             </a>
                                         </div>
                                     </div>
@@ -230,7 +230,7 @@
                                 <!-- Injection -->
                                 <div class="col-md-6 col-lg-4 mb-4">
                                     <div class="card module-card h-100">
-                                        <div class="count-badge bg-danger">-</div>
+                                        <div class="count-badge bg-danger">{{ number_format($stats['visits']['injection_pending'] ?? 0) }}</div>
                                         <div class="card-body text-center">
                                             <div class="mb-3">
                                                 <i class="bx bx-injection text-danger" style="font-size: 3rem;"></i>
@@ -247,7 +247,7 @@
                                 <!-- Family Planning -->
                                 <div class="col-md-6 col-lg-4 mb-4">
                                     <div class="card module-card h-100">
-                                        <div class="count-badge bg-primary">-</div>
+                                        <div class="count-badge bg-primary">{{ number_format($stats['visits']['family_planning_pending'] ?? 0) }}</div>
                                         <div class="card-body text-center">
                                             <div class="mb-3">
                                                 <i class="bx bx-heart-circle text-primary" style="font-size: 3rem;"></i>

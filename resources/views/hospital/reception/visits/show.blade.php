@@ -201,6 +201,94 @@
                     </div>
                 </div>
 
+                <!-- Pre-Paid Bill History -->
+                @if($paidInvoices && $paidInvoices->count() > 0)
+                    <div class="col-12 mb-4">
+                        <div class="card">
+                            <div class="card-header bg-success text-white">
+                                <h5 class="card-title mb-0">
+                                    <i class="bx bx-receipt me-2"></i>Pre-Paid Bill History
+                                </h5>
+                            </div>
+                            <div class="card-body">
+                                <div class="table-responsive">
+                                    <table class="table table-hover table-sm">
+                                        <thead>
+                                            <tr>
+                                                <th>Invoice #</th>
+                                                <th>Date</th>
+                                                <th>Type</th>
+                                                <th>Items</th>
+                                                <th>Total Amount</th>
+                                                <th>Paid Amount</th>
+                                                <th>Payment Date</th>
+                                                <th>Actions</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            @foreach($paidInvoices as $invoice)
+                                                @php
+                                                    $billType = 'General';
+                                                    if (str_contains($invoice->notes ?? '', 'Lab test')) {
+                                                        $billType = 'Lab Test';
+                                                    } elseif (str_contains($invoice->notes ?? '', 'Pharmacy')) {
+                                                        $billType = 'Pharmacy';
+                                                    } elseif (str_contains($invoice->notes ?? '', 'Consultation')) {
+                                                        $billType = 'Consultation';
+                                                    } elseif (str_contains($invoice->notes ?? '', 'Ultrasound')) {
+                                                        $billType = 'Ultrasound';
+                                                    }
+                                                    $paymentDate = $invoice->receipts->first()->date ?? $invoice->receipts->first()->created_at ?? $invoice->updated_at;
+                                                @endphp
+                                                <tr>
+                                                    <td>
+                                                        <strong>{{ $invoice->invoice_number }}</strong>
+                                                    </td>
+                                                    <td>{{ $invoice->created_at->format('d M Y, H:i') }}</td>
+                                                    <td>
+                                                        <span class="badge bg-info">{{ $billType }}</span>
+                                                    </td>
+                                                    <td>
+                                                        <small>
+                                                            @foreach($invoice->items->take(2) as $item)
+                                                                {{ $item->item_name }}{{ !$loop->last ? ', ' : '' }}
+                                                            @endforeach
+                                                            @if($invoice->items->count() > 2)
+                                                                <span class="text-muted">+{{ $invoice->items->count() - 2 }} more</span>
+                                                            @endif
+                                                        </small>
+                                                    </td>
+                                                    <td>{{ number_format($invoice->total_amount ?? $invoice->total ?? 0, 2) }} {{ $invoice->currency ?? 'TZS' }}</td>
+                                                    <td>
+                                                        <strong class="text-success">{{ number_format($invoice->paid_amount ?? $invoice->total_amount ?? $invoice->total ?? 0, 2) }} {{ $invoice->currency ?? 'TZS' }}</strong>
+                                                    </td>
+                                                    <td>{{ $paymentDate->format('d M Y, H:i') }}</td>
+                                                    <td>
+                                                        <a href="{{ route('sales.invoices.show', $invoice->encoded_id) }}" 
+                                                           class="btn btn-sm btn-outline-primary" 
+                                                           target="_blank"
+                                                           title="View Invoice">
+                                                            <i class="bx bx-show"></i>
+                                                        </a>
+                                                    </td>
+                                                </tr>
+                                            @endforeach
+                                        </tbody>
+                                        <tfoot>
+                                            <tr class="table-info">
+                                                <th colspan="4" class="text-end">Total Paid:</th>
+                                                <th colspan="4">
+                                                    <strong>{{ number_format($paidInvoices->sum('paid_amount') ?? $paidInvoices->sum('total_amount') ?? $paidInvoices->sum('total') ?? 0, 2) }} TZS</strong>
+                                                </th>
+                                            </tr>
+                                        </tfoot>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                @endif
+
                 <!-- Bills -->
                 @if($visit->bills->count() > 0)
                     <div class="col-12 mb-4">
@@ -391,7 +479,7 @@
                         <div class="card">
                             <div class="card-header">
                                 <h5 class="card-title mb-0">
-                                    <i class="bx bx-user-md me-2"></i>Consultation
+                                    <i class="bx bx-user-md me-2"></i>Doctor Consultation
                                 </h5>
                             </div>
                             <div class="card-body">
@@ -434,162 +522,788 @@
                     </div>
                 @endif
 
-                <!-- Lab Results -->
-                @if($visit->labResults->count() > 0)
-                    <div class="col-12 mb-4">
+                <!-- Diagnosis Explanation -->
+                @if($visit->diagnosisExplanation)
+                    <div class="col-md-6 mb-4">
                         <div class="card">
-                            <div class="card-header d-flex justify-content-between align-items-center">
+                            <div class="card-header bg-info text-white">
                                 <h5 class="card-title mb-0">
-                                    <i class="bx bx-test-tube me-2"></i>Lab Results
-                                    <span class="badge bg-info ms-2">{{ $visit->labResults->count() }}</span>
+                                    <i class="bx bx-file me-2"></i>Diagnosis Explanation
                                 </h5>
                             </div>
                             <div class="card-body">
-                                <div class="table-responsive">
-                                    <table class="table table-hover">
-                                        <thead>
-                                            <tr>
-                                                <th>Test Name</th>
-                                                <th>Result</th>
-                                                <th>Status</th>
-                                                <th>Completed At</th>
-                                                <th>Performed By</th>
-                                                <th>Actions</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody>
-                                            @foreach($visit->labResults as $result)
-                                                <tr>
-                                                    <td><strong>{{ $result->test_name }}</strong></td>
-                                                    <td>
-                                                        @if($result->result_value)
-                                                            {{ $result->result_value }}
-                                                            @if($result->unit) {{ $result->unit }} @endif
-                                                        @else
-                                                            <span class="text-muted">Pending</span>
-                                                        @endif
-                                                    </td>
-                                                    <td>
-                                                        @php
-                                                            $statusColors = [
-                                                                'pending' => 'warning',
-                                                                'ready' => 'success',
-                                                                'printed' => 'info'
-                                                            ];
-                                                            $color = $statusColors[$result->result_status] ?? 'secondary';
-                                                        @endphp
-                                                        <span class="badge bg-{{ $color }}">
-                                                            {{ ucfirst($result->result_status) }}
-                                                        </span>
-                                                    </td>
-                                                    <td>
-                                                        {{ $result->completed_at ? $result->completed_at->format('d M Y, H:i') : 'N/A' }}
-                                                    </td>
-                                                    <td>{{ $result->performedBy->name ?? 'N/A' }}</td>
-                                                    <td>
-                                                        @if($result->result_status === 'ready' || $result->result_status === 'printed')
-                                                            <div class="btn-group btn-group-sm">
-                                                                <a href="{{ route('hospital.reception.visits.print-results', ['visit' => $visit->id, 'type' => 'lab', 'result_id' => $result->id, 'format' => 'a4']) }}" 
-                                                                   class="btn btn-outline-primary" target="_blank" title="Print A4">
-                                                                    <i class="bx bx-printer"></i> A4
-                                                                </a>
-                                                                <a href="{{ route('hospital.reception.visits.print-results', ['visit' => $visit->id, 'type' => 'lab', 'result_id' => $result->id, 'format' => 'thermal']) }}" 
-                                                                   class="btn btn-outline-info" target="_blank" title="Print Thermal Receipt">
-                                                                    <i class="bx bx-receipt"></i> Thermal
-                                                                </a>
-                                                            </div>
-                                                        @else
-                                                            <span class="text-muted">Not ready</span>
-                                                        @endif
-                                                    </td>
-                                                </tr>
-                                            @endforeach
-                                        </tbody>
-                                    </table>
+                                <div class="mb-3">
+                                    <strong>Diagnosis:</strong>
+                                    <p class="mb-0">{{ $visit->diagnosisExplanation->diagnosis ?? 'N/A' }}</p>
                                 </div>
-                            </div>
-                        </div>
-                    </div>
-                @endif
-
-                <!-- Ultrasound Results -->
-                @if($visit->ultrasoundResults->count() > 0)
-                    <div class="col-12 mb-4">
-                        <div class="card">
-                            <div class="card-header d-flex justify-content-between align-items-center">
-                                <h5 class="card-title mb-0">
-                                    <i class="bx bx-scan me-2"></i>Ultrasound Results
-                                    <span class="badge bg-info ms-2">{{ $visit->ultrasoundResults->count() }}</span>
-                                </h5>
-                            </div>
-                            <div class="card-body">
-                                <div class="table-responsive">
-                                    <table class="table table-hover">
-                                        <thead>
-                                            <tr>
-                                                <th>Examination Type</th>
-                                                <th>Findings</th>
-                                                <th>Status</th>
-                                                <th>Completed At</th>
-                                                <th>Performed By</th>
-                                                <th>Actions</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody>
-                                            @foreach($visit->ultrasoundResults as $result)
-                                                <tr>
-                                                    <td><strong>{{ $result->examination_type }}</strong></td>
-                                                    <td>
-                                                        @if($result->findings)
-                                                            {{ \Str::limit($result->findings, 50) }}
-                                                        @else
-                                                            <span class="text-muted">Pending</span>
-                                                        @endif
-                                                    </td>
-                                                    <td>
-                                                        @php
-                                                            $statusColors = [
-                                                                'pending' => 'warning',
-                                                                'ready' => 'success',
-                                                                'printed' => 'info'
-                                                            ];
-                                                            $color = $statusColors[$result->result_status] ?? 'secondary';
-                                                        @endphp
-                                                        <span class="badge bg-{{ $color }}">
-                                                            {{ ucfirst($result->result_status) }}
-                                                        </span>
-                                                    </td>
-                                                    <td>
-                                                        {{ $result->completed_at ? $result->completed_at->format('d M Y, H:i') : 'N/A' }}
-                                                    </td>
-                                                    <td>{{ $result->performedBy->name ?? 'N/A' }}</td>
-                                                    <td>
-                                                        @if($result->result_status === 'ready' || $result->result_status === 'printed')
-                                                            <div class="btn-group btn-group-sm">
-                                                                <a href="{{ route('hospital.reception.visits.print-results', ['visit' => $visit->id, 'type' => 'ultrasound', 'result_id' => $result->id, 'format' => 'a4']) }}" 
-                                                                   class="btn btn-outline-primary" target="_blank" title="Print A4">
-                                                                    <i class="bx bx-printer"></i> A4
-                                                                </a>
-                                                                <a href="{{ route('hospital.reception.visits.print-results', ['visit' => $visit->id, 'type' => 'ultrasound', 'result_id' => $result->id, 'format' => 'thermal']) }}" 
-                                                                   class="btn btn-outline-info" target="_blank" title="Print Thermal Receipt">
-                                                                    <i class="bx bx-receipt"></i> Thermal
-                                                                </a>
-                                                            </div>
-                                                        @else
-                                                            <span class="text-muted">Not ready</span>
-                                                        @endif
-                                                    </td>
-                                                </tr>
-                                            @endforeach
-                                        </tbody>
-                                    </table>
+                                <div class="mb-3">
+                                    <strong>Explanation:</strong>
+                                    <p class="mb-0">{{ $visit->diagnosisExplanation->explanation ?? 'N/A' }}</p>
                                 </div>
+                                @if($visit->diagnosisExplanation->notes)
+                                    <div class="mb-3">
+                                        <strong>Notes:</strong>
+                                        <p class="mb-0">{{ $visit->diagnosisExplanation->notes }}</p>
+                                    </div>
+                                @endif
+                                <small class="text-muted">
+                                    Created: {{ $visit->diagnosisExplanation->created_at->format('d M Y, H:i') }}
+                                </small>
                             </div>
                         </div>
                     </div>
                 @endif
 
                 <!-- Actions Card -->
+                <div class="col-12 mb-4">
+                    <div class="card">
+                        <div class="card-header bg-success text-white">
+                            <h5 class="mb-0"><i class="bx bx-list-ul me-2"></i>Actions</h5>
+                        </div>
+                        <div class="card-body">
+                            <div class="row">
+                                <!-- Create Lab Test Bill Card -->
+                                <div class="col-md-3 col-lg-3 mb-3">
+                                    <div class="card border-primary h-100">
+                                        <div class="card-body text-center">
+                                            <i class="bx bx-test-tube font-50 text-primary mb-3"></i>
+                                            <h5 class="card-title">Lab Test Bill</h5>
+                                            <p class="card-text text-muted">Create a bill for lab tests and send patient to cashier for payment</p>
+                                            <a href="{{ route('hospital.doctor.create-lab-bill', $visit->id) }}" class="btn btn-primary">
+                                                <i class="bx bx-plus me-1"></i>Create Bill
+                                            </a>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- Pharmacy Card -->
+                                <div class="col-md-3 col-lg-3 mb-3">
+                                    <div class="card border-success h-100">
+                                        <div class="card-body text-center">
+                                            <i class="bx bx-capsule font-50 text-success mb-3"></i>
+                                            <h5 class="card-title">Pharmacy</h5>
+                                            <p class="card-text text-muted">Create pharmacy bill and send patient to cashier for payment</p>
+                                            <a href="{{ route('hospital.doctor.create-pharmacy-bill', $visit->id) }}" class="btn btn-success">
+                                                <i class="bx bx-plus me-1"></i>Create Bill
+                                            </a>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- Vaccination Card -->
+                                <div class="col-md-3 col-lg-3 mb-3">
+                                    <div class="card border-warning h-100">
+                                        <div class="card-body text-center">
+                                            <i class="bx bx-shield font-50 text-warning mb-3"></i>
+                                            <h5 class="card-title">Vaccination</h5>
+                                            <p class="card-text text-muted">Create vaccination bill and send patient to cashier for payment</p>
+                                            <a href="{{ route('hospital.doctor.create-vaccination-bill', $visit->id) }}" class="btn btn-warning">
+                                                <i class="bx bx-plus me-1"></i>Create Bill
+                                            </a>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- Injection Card -->
+                                <div class="col-md-3 col-lg-3 mb-3">
+                                    <div class="card border-danger h-100">
+                                        <div class="card-body text-center">
+                                            <i class="bx bx-injection font-50 text-danger mb-3"></i>
+                                            <h5 class="card-title">Injection</h5>
+                                            <p class="card-text text-muted">Create injection bill and send patient to cashier for payment</p>
+                                            <a href="{{ route('hospital.doctor.create-injection-bill', $visit->id) }}" class="btn btn-danger">
+                                                <i class="bx bx-plus me-1"></i>Create Bill
+                                            </a>
+                                        </div>
+                                    </div>
+                                </div>
+
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Medication Dispensed -->
+                @if($visit->pharmacyDispensations && $visit->pharmacyDispensations->count() > 0)
+                    <div class="col-12 mb-4">
+                        <div class="card">
+                            <div class="card-header bg-primary text-white">
+                                <h5 class="card-title mb-0">
+                                    <i class="bx bx-capsule me-2"></i>Medication Dispensed
+                                    <span class="badge bg-light text-dark ms-2">{{ $visit->pharmacyDispensations->count() }}</span>
+                                </h5>
+                            </div>
+                            <div class="card-body">
+                                @foreach($visit->pharmacyDispensations as $dispensation)
+                                    <div class="card border mb-3">
+                                        <div class="card-body">
+                                            <div class="d-flex justify-content-between align-items-start mb-3">
+                                                <div>
+                                                    <h6 class="mb-1">
+                                                        Dispensation #: <strong>{{ $dispensation->dispensation_number }}</strong>
+                                                        <span class="badge bg-{{ $dispensation->status === 'dispensed' ? 'success' : 'warning' }} ms-2">
+                                                            {{ ucfirst($dispensation->status) }}
+                                                        </span>
+                                                    </h6>
+                                                    <small class="text-muted">
+                                                        Dispensed: {{ $dispensation->dispensed_at ? $dispensation->dispensed_at->format('d M Y, H:i') : 'N/A' }}
+                                                        @if($dispensation->dispensedBy)
+                                                            by {{ $dispensation->dispensedBy->name }}
+                                                        @endif
+                                                    </small>
+                                                </div>
+                                            </div>
+
+                                            @if($dispensation->items->count() > 0)
+                                                <div class="table-responsive">
+                                                    <table class="table table-sm">
+                                                        <thead>
+                                                            <tr>
+                                                                <th>Medication</th>
+                                                                <th>Quantity Prescribed</th>
+                                                                <th>Quantity Dispensed</th>
+                                                                <th>Dosage/Description</th>
+                                                                <th>Status</th>
+                                                            </tr>
+                                                        </thead>
+                                                        <tbody>
+                                                            @foreach($dispensation->items as $item)
+                                                                <tr>
+                                                                    <td>
+                                                                        <strong>{{ $item->product->name ?? 'N/A' }}</strong>
+                                                                    </td>
+                                                                    <td>{{ $item->quantity_prescribed ?? 0 }}</td>
+                                                                    <td>
+                                                                        <strong class="text-success">{{ $item->quantity_dispensed ?? 0 }}</strong>
+                                                                    </td>
+                                                                    <td>
+                                                                        <small class="text-muted">{{ $item->description ?? 'N/A' }}</small>
+                                                                    </td>
+                                                                    <td>
+                                                                        <span class="badge bg-{{ $item->status === 'dispensed' ? 'success' : 'warning' }}">
+                                                                            {{ ucfirst($item->status) }}
+                                                                        </span>
+                                                                    </td>
+                                                                </tr>
+                                                            @endforeach
+                                                        </tbody>
+                                                    </table>
+                                                </div>
+                                            @endif
+                                        </div>
+                                    </div>
+                                @endforeach
+                            </div>
+                        </div>
+                    </div>
+                @endif
+
+                <!-- Lab Test Bills and Results -->
+                @php
+                    $labInvoices = $paidInvoices ? $paidInvoices->filter(function($inv) {
+                        return str_contains($inv->notes ?? '', 'Lab test');
+                    }) : collect();
+                @endphp
+                @if($labInvoices->count() > 0 || $visit->labResults->count() > 0)
+                    <div class="col-12 mb-4">
+                        <div class="card">
+                            <div class="card-header bg-danger text-white d-flex justify-content-between align-items-center">
+                                <h5 class="card-title mb-0">
+                                    <i class="bx bx-test-tube me-2"></i>Lab Test Bills and Results
+                                    @if($visit->labResults->count() > 0)
+                                        <span class="badge bg-light text-dark ms-2">{{ $visit->labResults->count() }} result(s)</span>
+                                    @endif
+                                </h5>
+                            </div>
+                            <div class="card-body">
+                                @if($labInvoices->count() > 0)
+                                    <div class="mb-4">
+                                        <h6 class="mb-3"><i class="bx bx-receipt me-1"></i>Lab Test Bills</h6>
+                                        @foreach($labInvoices as $invoice)
+                                            <div class="card border mb-2">
+                                                <div class="card-body p-3">
+                                                    <div class="d-flex justify-content-between align-items-center">
+                                                        <div>
+                                                            <strong>{{ $invoice->invoice_number }}</strong>
+                                                            <small class="text-muted ms-2">{{ $invoice->created_at->format('d M Y, H:i') }}</small>
+                                                        </div>
+                                                        <div>
+                                                            <span class="badge bg-success">{{ number_format($invoice->paid_amount ?? $invoice->total_amount ?? 0, 2) }} TZS</span>
+                                                            <a href="{{ route('sales.invoices.show', $invoice->encoded_id) }}" 
+                                                               class="btn btn-sm btn-outline-primary ms-2" target="_blank">
+                                                                <i class="bx bx-show"></i>
+                                                            </a>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        @endforeach
+                                    </div>
+                                @endif
+
+                                @if($visit->labResults->count() > 0)
+                                    <div>
+                                        <h6 class="mb-3"><i class="bx bx-test-tube me-1"></i>Lab Test Results</h6>
+                                        <div class="table-responsive">
+                                            <table class="table table-hover">
+                                                <thead>
+                                                    <tr>
+                                                        <th>Test Name</th>
+                                                        <th>Service</th>
+                                                        <th>Result Value</th>
+                                                        <th>Unit</th>
+                                                        <th>Reference Range</th>
+                                                        <th>Status</th>
+                                                        <th>Result Status</th>
+                                                        <th>Completed At</th>
+                                                        <th>Performed By</th>
+                                                        <th>Actions</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody>
+                                                    @foreach($visit->labResults as $result)
+                                                        @php
+                                                            $statusColors = [
+                                                                'normal' => 'success',
+                                                                'abnormal' => 'warning',
+                                                                'critical' => 'danger'
+                                                            ];
+                                                            $statusColor = $statusColors[$result->status] ?? 'secondary';
+                                                            $resultStatusColors = [
+                                                                'pending' => 'warning',
+                                                                'ready' => 'success',
+                                                                'printed' => 'info',
+                                                                'delivered' => 'primary'
+                                                            ];
+                                                            $resultStatusColor = $resultStatusColors[$result->result_status] ?? 'secondary';
+                                                        @endphp
+                                                        <tr>
+                                                            <td><strong>{{ $result->test_name }}</strong></td>
+                                                            <td>{{ $result->service->name ?? 'N/A' }}</td>
+                                                            <td>
+                                                                @if($result->result_value)
+                                                                    {{ $result->result_value }}
+                                                                @else
+                                                                    <span class="text-muted">Pending</span>
+                                                                @endif
+                                                            </td>
+                                                            <td>{{ $result->unit ?? 'N/A' }}</td>
+                                                            <td>{{ $result->reference_range ?? 'N/A' }}</td>
+                                                            <td>
+                                                                @if($result->status)
+                                                                    <span class="badge bg-{{ $statusColor }}">
+                                                                        {{ ucfirst($result->status) }}
+                                                                    </span>
+                                                                @else
+                                                                    <span class="text-muted">-</span>
+                                                                @endif
+                                                            </td>
+                                                            <td>
+                                                                <span class="badge bg-{{ $resultStatusColor }}">
+                                                                    {{ ucfirst($result->result_status) }}
+                                                                </span>
+                                                            </td>
+                                                            <td>
+                                                                {{ $result->completed_at ? $result->completed_at->format('d M Y, H:i') : 'N/A' }}
+                                                            </td>
+                                                            <td>{{ $result->performedBy->name ?? 'N/A' }}</td>
+                                                            <td>
+                                                                @if($result->result_status === 'ready' || $result->result_status === 'printed')
+                                                                    <div class="btn-group btn-group-sm">
+                                                                        <a href="{{ route('hospital.reception.visits.print-results', ['visit' => $visit->id, 'type' => 'lab', 'result_id' => $result->id, 'format' => 'a4']) }}" 
+                                                                           class="btn btn-outline-primary" target="_blank" title="Print A4">
+                                                                            <i class="bx bx-printer"></i> A4
+                                                                        </a>
+                                                                        <a href="{{ route('hospital.reception.visits.print-results', ['visit' => $visit->id, 'type' => 'lab', 'result_id' => $result->id, 'format' => 'thermal']) }}" 
+                                                                           class="btn btn-outline-info" target="_blank" title="Print Thermal Receipt">
+                                                                            <i class="bx bx-receipt"></i> Thermal
+                                                                        </a>
+                                                                    </div>
+                                                                @else
+                                                                    <span class="text-muted">Not ready</span>
+                                                                @endif
+                                                            </td>
+                                                        </tr>
+                                                    @endforeach
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    </div>
+                                @endif
+                            </div>
+                        </div>
+                    </div>
+                @endif
+
+                <!-- Ultrasound Test Bills and Results -->
+                @php
+                    $ultrasoundInvoices = $paidInvoices ? $paidInvoices->filter(function($inv) {
+                        return str_contains($inv->notes ?? '', 'Ultrasound');
+                    }) : collect();
+                @endphp
+                @if($ultrasoundInvoices->count() > 0 || $visit->ultrasoundResults->count() > 0)
+                    <div class="col-12 mb-4">
+                        <div class="card">
+                            <div class="card-header bg-secondary text-white d-flex justify-content-between align-items-center">
+                                <h5 class="card-title mb-0">
+                                    <i class="bx bx-scan me-2"></i>Ultrasound Test Bills and Results
+                                    @if($visit->ultrasoundResults->count() > 0)
+                                        <span class="badge bg-light text-dark ms-2">{{ $visit->ultrasoundResults->count() }} result(s)</span>
+                                    @endif
+                                </h5>
+                            </div>
+                            <div class="card-body">
+                                @if($ultrasoundInvoices->count() > 0)
+                                    <div class="mb-4">
+                                        <h6 class="mb-3"><i class="bx bx-receipt me-1"></i>Ultrasound Test Bills</h6>
+                                        @foreach($ultrasoundInvoices as $invoice)
+                                            <div class="card border mb-2">
+                                                <div class="card-body p-3">
+                                                    <div class="d-flex justify-content-between align-items-center">
+                                                        <div>
+                                                            <strong>{{ $invoice->invoice_number }}</strong>
+                                                            <small class="text-muted ms-2">{{ $invoice->created_at->format('d M Y, H:i') }}</small>
+                                                        </div>
+                                                        <div>
+                                                            <span class="badge bg-success">{{ number_format($invoice->paid_amount ?? $invoice->total_amount ?? 0, 2) }} TZS</span>
+                                                            <a href="{{ route('sales.invoices.show', $invoice->encoded_id) }}" 
+                                                               class="btn btn-sm btn-outline-primary ms-2" target="_blank">
+                                                                <i class="bx bx-show"></i>
+                                                            </a>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        @endforeach
+                                    </div>
+                                @endif
+
+                                @if($visit->ultrasoundResults->count() > 0)
+                                    <div>
+                                        <h6 class="mb-3"><i class="bx bx-scan me-1"></i>Ultrasound Results</h6>
+                                        <div class="table-responsive">
+                                            <table class="table table-hover">
+                                                <thead>
+                                                    <tr>
+                                                        <th>Result #</th>
+                                                        <th>Examination Type</th>
+                                                        <th>Service</th>
+                                                        <th>Findings</th>
+                                                        <th>Impression</th>
+                                                        <th>Status</th>
+                                                        <th>Completed At</th>
+                                                        <th>Performed By</th>
+                                                        <th>Actions</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody>
+                                                    @foreach($visit->ultrasoundResults as $result)
+                                                        @php
+                                                            $images = $result->images ? (is_string($result->images) ? json_decode($result->images, true) : $result->images) : [];
+                                                            $statusColors = [
+                                                                'pending' => 'warning',
+                                                                'ready' => 'success',
+                                                                'printed' => 'info',
+                                                                'delivered' => 'primary'
+                                                            ];
+                                                            $color = $statusColors[$result->result_status] ?? 'secondary';
+                                                        @endphp
+                                                        <tr>
+                                                            <td><strong>{{ $result->result_number }}</strong></td>
+                                                            <td>{{ $result->examination_type }}</td>
+                                                            <td>{{ $result->service->name ?? 'N/A' }}</td>
+                                                            <td>
+                                                                @if($result->findings)
+                                                                    {{ strlen($result->findings) > 50 ? substr($result->findings, 0, 50) . '...' : $result->findings }}
+                                                                @else
+                                                                    <span class="text-muted">Pending</span>
+                                                                @endif
+                                                            </td>
+                                                            <td>
+                                                                @if($result->impression)
+                                                                    {{ strlen($result->impression) > 50 ? substr($result->impression, 0, 50) . '...' : $result->impression }}
+                                                                @else
+                                                                    <span class="text-muted">N/A</span>
+                                                                @endif
+                                                            </td>
+                                                            <td>
+                                                                <span class="badge bg-{{ $color }}">
+                                                                    {{ ucfirst($result->result_status) }}
+                                                                </span>
+                                                                @if(count($images) > 0)
+                                                                    <span class="badge bg-info ms-1">{{ count($images) }} image(s)</span>
+                                                                @endif
+                                                            </td>
+                                                            <td>
+                                                                {{ $result->completed_at ? $result->completed_at->format('d M Y, H:i') : 'N/A' }}
+                                                            </td>
+                                                            <td>{{ $result->performedBy->name ?? 'N/A' }}</td>
+                                                            <td>
+                                                                @if($result->result_status === 'ready' || $result->result_status === 'printed')
+                                                                    <div class="btn-group btn-group-sm">
+                                                                        <a href="{{ route('hospital.ultrasound.show', $result->id) }}" 
+                                                                           class="btn btn-outline-secondary" target="_blank" title="View Full Result">
+                                                                            <i class="bx bx-show"></i>
+                                                                        </a>
+                                                                        <a href="{{ route('hospital.reception.visits.print-results', ['visit' => $visit->id, 'type' => 'ultrasound', 'result_id' => $result->id, 'format' => 'a4']) }}" 
+                                                                           class="btn btn-outline-primary" target="_blank" title="Print A4">
+                                                                            <i class="bx bx-printer"></i> A4
+                                                                        </a>
+                                                                        <a href="{{ route('hospital.reception.visits.print-results', ['visit' => $visit->id, 'type' => 'ultrasound', 'result_id' => $result->id, 'format' => 'thermal']) }}" 
+                                                                           class="btn btn-outline-info" target="_blank" title="Print Thermal Receipt">
+                                                                            <i class="bx bx-receipt"></i> Thermal
+                                                                        </a>
+                                                                    </div>
+                                                                @else
+                                                                    <span class="text-muted">Not ready</span>
+                                                                @endif
+                                                            </td>
+                                                        </tr>
+                                                    @endforeach
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    </div>
+                                @endif
+                            </div>
+                        </div>
+                    </div>
+                @endif
+
+                <!-- Dental Bills and Records -->
+                @php
+                    $dentalInvoices = $paidInvoices ? $paidInvoices->filter(function($inv) {
+                        return str_contains($inv->notes ?? '', 'Dental');
+                    }) : collect();
+                @endphp
+                @if($dentalInvoices->count() > 0 || $visit->dentalRecords->count() > 0)
+                    <div class="col-12 mb-4">
+                        <div class="card">
+                            <div class="card-header bg-info text-white d-flex justify-content-between align-items-center">
+                                <h5 class="card-title mb-0">
+                                    <i class="bx bx-smile me-2"></i>Dental Bills and Records
+                                    @if($visit->dentalRecords->count() > 0)
+                                        <span class="badge bg-light text-dark ms-2">{{ $visit->dentalRecords->count() }} record(s)</span>
+                                    @endif
+                                </h5>
+                            </div>
+                            <div class="card-body">
+                                @if($dentalInvoices->count() > 0)
+                                    <div class="mb-4">
+                                        <h6 class="mb-3"><i class="bx bx-receipt me-1"></i>Dental Bills</h6>
+                                        @foreach($dentalInvoices as $invoice)
+                                            <div class="card mb-2">
+                                                <div class="card-body p-3">
+                                                    <div class="row align-items-center">
+                                                        <div class="col-md-3">
+                                                            <strong>Invoice #:</strong> {{ $invoice->invoice_number }}
+                                                        </div>
+                                                        <div class="col-md-3">
+                                                            <strong>Date:</strong> {{ $invoice->created_at->format('d M Y, H:i') }}
+                                                        </div>
+                                                        <div class="col-md-3">
+                                                            <strong>Total:</strong> {{ number_format($invoice->total_amount, 2) }} TZS
+                                                        </div>
+                                                        <div class="col-md-3 text-end">
+                                                            <a href="{{ route('sales.invoices.show', $invoice->encoded_id) }}" class="btn btn-sm btn-outline-info" target="_blank">
+                                                                <i class="bx bx-show"></i> View Invoice
+                                                            </a>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        @endforeach
+                                    </div>
+                                @endif
+
+                                @if($visit->dentalRecords->count() > 0)
+                                    <div>
+                                        <h6 class="mb-3"><i class="bx bx-smile me-1"></i>Dental Records</h6>
+                                        <div class="table-responsive">
+                                            <table class="table table-hover">
+                                                <thead>
+                                                    <tr>
+                                                        <th>Record #</th>
+                                                        <th>Service</th>
+                                                        <th>Procedure Type</th>
+                                                        <th>Status</th>
+                                                        <th>Findings</th>
+                                                        <th>Treatment Performed</th>
+                                                        <th>Completed At</th>
+                                                        <th>Performed By</th>
+                                                        <th>Actions</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody>
+                                                    @foreach($visit->dentalRecords as $record)
+                                                        @php
+                                                            $statusColors = [
+                                                                'completed' => 'success',
+                                                                'follow_up_required' => 'warning',
+                                                                'pending' => 'info'
+                                                            ];
+                                                            $statusColor = $statusColors[$record->status] ?? 'secondary';
+                                                        @endphp
+                                                        <tr>
+                                                            <td><strong>{{ $record->record_number }}</strong></td>
+                                                            <td>{{ $record->service->name ?? 'N/A' }}</td>
+                                                            <td>{{ $record->procedure_type ?? 'N/A' }}</td>
+                                                            <td>
+                                                                <span class="badge bg-{{ $statusColor }}">
+                                                                    {{ ucfirst(str_replace('_', ' ', $record->status)) }}
+                                                                </span>
+                                                            </td>
+                                                            <td>
+                                                                @if($record->findings)
+                                                                    {{ strlen($record->findings) > 50 ? substr($record->findings, 0, 50) . '...' : $record->findings }}
+                                                                @else
+                                                                    <span class="text-muted">N/A</span>
+                                                                @endif
+                                                            </td>
+                                                            <td>
+                                                                @if($record->treatment_performed)
+                                                                    {{ strlen($record->treatment_performed) > 50 ? substr($record->treatment_performed, 0, 50) . '...' : $record->treatment_performed }}
+                                                                @else
+                                                                    <span class="text-muted">N/A</span>
+                                                                @endif
+                                                            </td>
+                                                            <td>
+                                                                {{ $record->completed_at ? $record->completed_at->format('d M Y, H:i') : 'N/A' }}
+                                                            </td>
+                                                            <td>{{ $record->performedBy->name ?? 'N/A' }}</td>
+                                                            <td>
+                                                                <a href="{{ route('hospital.dental.show', $record->id) }}" 
+                                                                   class="btn btn-outline-info btn-sm" target="_blank" title="View Full Record">
+                                                                    <i class="bx bx-show"></i>
+                                                                </a>
+                                                            </td>
+                                                        </tr>
+                                                    @endforeach
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    </div>
+                                @endif
+                            </div>
+                        </div>
+                    </div>
+                @endif
+
+                <!-- Vaccination Bills and Records -->
+                @php
+                    $vaccinationInvoices = $paidInvoices ? $paidInvoices->filter(function($inv) {
+                        return str_contains($inv->notes ?? '', 'Vaccination');
+                    }) : collect();
+                @endphp
+                @if($vaccinationInvoices->count() > 0 || $visit->vaccinationRecords->count() > 0)
+                    <div class="col-12 mb-4">
+                        <div class="card">
+                            <div class="card-header bg-warning text-white d-flex justify-content-between align-items-center">
+                                <h5 class="card-title mb-0">
+                                    <i class="bx bx-shield me-2"></i>Vaccination Bills and Records
+                                    @if($visit->vaccinationRecords->count() > 0)
+                                        <span class="badge bg-light text-dark ms-2">{{ $visit->vaccinationRecords->count() }} record(s)</span>
+                                    @endif
+                                </h5>
+                            </div>
+                            <div class="card-body">
+                                @if($vaccinationInvoices->count() > 0)
+                                    <div class="mb-4">
+                                        <h6 class="mb-3"><i class="bx bx-receipt me-1"></i>Vaccination Bills</h6>
+                                        @foreach($vaccinationInvoices as $invoice)
+                                            <div class="card mb-2">
+                                                <div class="card-body p-3">
+                                                    <div class="row align-items-center">
+                                                        <div class="col-md-3">
+                                                            <strong>Invoice #:</strong> {{ $invoice->invoice_number }}
+                                                        </div>
+                                                        <div class="col-md-3">
+                                                            <strong>Date:</strong> {{ $invoice->created_at->format('d M Y, H:i') }}
+                                                        </div>
+                                                        <div class="col-md-3">
+                                                            <strong>Total:</strong> {{ number_format($invoice->total_amount, 2) }} TZS
+                                                        </div>
+                                                        <div class="col-md-3 text-end">
+                                                            <a href="{{ route('sales.invoices.show', $invoice->encoded_id) }}" class="btn btn-sm btn-outline-warning" target="_blank">
+                                                                <i class="bx bx-show"></i> View Invoice
+                                                            </a>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        @endforeach
+                                    </div>
+                                @endif
+
+                                @if($visit->vaccinationRecords->count() > 0)
+                                    <div>
+                                        <h6 class="mb-3"><i class="bx bx-shield me-1"></i>Vaccination Records</h6>
+                                        <div class="table-responsive">
+                                            <table class="table table-hover">
+                                                <thead>
+                                                    <tr>
+                                                        <th>Record #</th>
+                                                        <th>Item</th>
+                                                        <th>Vaccine Type</th>
+                                                        <th>Status</th>
+                                                        <th>Vaccine Name</th>
+                                                        <th>Dosage</th>
+                                                        <th>Completed At</th>
+                                                        <th>Performed By</th>
+                                                        <th>Actions</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody>
+                                                    @foreach($visit->vaccinationRecords as $record)
+                                                        @php
+                                                            $statusColors = [
+                                                                'completed' => 'success',
+                                                                'follow_up_required' => 'warning',
+                                                                'pending' => 'info'
+                                                            ];
+                                                            $statusColor = $statusColors[$record->status] ?? 'secondary';
+                                                        @endphp
+                                                        <tr>
+                                                            <td><strong>{{ $record->record_number }}</strong></td>
+                                                            <td>{{ $record->item->name ?? 'N/A' }}</td>
+                                                            <td>{{ $record->vaccine_type ?? 'N/A' }}</td>
+                                                            <td>
+                                                                <span class="badge bg-{{ $statusColor }}">
+                                                                    {{ ucfirst(str_replace('_', ' ', $record->status)) }}
+                                                                </span>
+                                                            </td>
+                                                            <td>{{ $record->vaccine_name ?? 'N/A' }}</td>
+                                                            <td>{{ $record->dosage ?? 'N/A' }}</td>
+                                                            <td>
+                                                                {{ $record->completed_at ? $record->completed_at->format('d M Y, H:i') : 'N/A' }}
+                                                            </td>
+                                                            <td>{{ $record->performedBy->name ?? 'N/A' }}</td>
+                                                            <td>
+                                                                <a href="{{ route('hospital.vaccination.show', $record->id) }}" 
+                                                                   class="btn btn-outline-warning btn-sm" target="_blank" title="View Full Record">
+                                                                    <i class="bx bx-show"></i>
+                                                                </a>
+                                                            </td>
+                                                        </tr>
+                                                    @endforeach
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    </div>
+                                @endif
+                            </div>
+                        </div>
+                    </div>
+                @endif
+
+                <!-- Injection Bills and Records -->
+                @php
+                    $injectionInvoices = $paidInvoices ? $paidInvoices->filter(function($inv) {
+                        return str_contains($inv->notes ?? '', 'Injection');
+                    }) : collect();
+                @endphp
+                @if($injectionInvoices->count() > 0 || $visit->injectionRecords->count() > 0)
+                    <div class="col-12 mb-4">
+                        <div class="card">
+                            <div class="card-header bg-danger text-white d-flex justify-content-between align-items-center">
+                                <h5 class="card-title mb-0">
+                                    <i class="bx bx-injection me-2"></i>Injection Bills and Records
+                                    @if($visit->injectionRecords->count() > 0)
+                                        <span class="badge bg-light text-dark ms-2">{{ $visit->injectionRecords->count() }} record(s)</span>
+                                    @endif
+                                </h5>
+                            </div>
+                            <div class="card-body">
+                                @if($injectionInvoices->count() > 0)
+                                    <div class="mb-4">
+                                        <h6 class="mb-3"><i class="bx bx-receipt me-1"></i>Injection Bills</h6>
+                                        @foreach($injectionInvoices as $invoice)
+                                            <div class="card mb-2">
+                                                <div class="card-body p-3">
+                                                    <div class="row align-items-center">
+                                                        <div class="col-md-3">
+                                                            <strong>Invoice #:</strong> {{ $invoice->invoice_number }}
+                                                        </div>
+                                                        <div class="col-md-3">
+                                                            <strong>Date:</strong> {{ $invoice->created_at->format('d M Y, H:i') }}
+                                                        </div>
+                                                        <div class="col-md-3">
+                                                            <strong>Total:</strong> {{ number_format($invoice->total_amount, 2) }} TZS
+                                                        </div>
+                                                        <div class="col-md-3 text-end">
+                                                            <a href="{{ route('sales.invoices.show', $invoice->encoded_id) }}" class="btn btn-sm btn-outline-danger" target="_blank">
+                                                                <i class="bx bx-show"></i> View Invoice
+                                                            </a>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        @endforeach
+                                    </div>
+                                @endif
+
+                                @if($visit->injectionRecords->count() > 0)
+                                    <div>
+                                        <h6 class="mb-3"><i class="bx bx-injection me-1"></i>Injection Records</h6>
+                                        <div class="table-responsive">
+                                            <table class="table table-hover">
+                                                <thead>
+                                                    <tr>
+                                                        <th>Record #</th>
+                                                        <th>Item</th>
+                                                        <th>Injection Type</th>
+                                                        <th>Status</th>
+                                                        <th>Medication Name</th>
+                                                        <th>Dosage</th>
+                                                        <th>Completed At</th>
+                                                        <th>Performed By</th>
+                                                        <th>Actions</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody>
+                                                    @foreach($visit->injectionRecords as $record)
+                                                        @php
+                                                            $statusColors = [
+                                                                'completed' => 'success',
+                                                                'follow_up_required' => 'warning',
+                                                                'pending' => 'info'
+                                                            ];
+                                                            $statusColor = $statusColors[$record->status] ?? 'secondary';
+                                                        @endphp
+                                                        <tr>
+                                                            <td><strong>{{ $record->record_number }}</strong></td>
+                                                            <td>{{ $record->item->name ?? 'N/A' }}</td>
+                                                            <td>{{ $record->injection_type ?? 'N/A' }}</td>
+                                                            <td>
+                                                                <span class="badge bg-{{ $statusColor }}">
+                                                                    {{ ucfirst(str_replace('_', ' ', $record->status)) }}
+                                                                </span>
+                                                            </td>
+                                                            <td>{{ $record->medication_name ?? 'N/A' }}</td>
+                                                            <td>{{ $record->dosage ?? 'N/A' }}</td>
+                                                            <td>
+                                                                {{ $record->completed_at ? $record->completed_at->format('d M Y, H:i') : 'N/A' }}
+                                                            </td>
+                                                            <td>{{ $record->performedBy->name ?? 'N/A' }}</td>
+                                                            <td>
+                                                                <a href="{{ route('hospital.injection.show', $record->id) }}" 
+                                                                   class="btn btn-outline-danger btn-sm" target="_blank" title="View Full Record">
+                                                                    <i class="bx bx-show"></i>
+                                                                </a>
+                                                            </td>
+                                                        </tr>
+                                                    @endforeach
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    </div>
+                                @endif
+                            </div>
+                        </div>
+                    </div>
+                @endif
+
+                <!-- Reception Actions Card -->
                 <div class="col-12 mb-4">
                     <div class="card border-primary">
                         <div class="card-header bg-primary text-white">
@@ -599,6 +1313,7 @@
                         </div>
                         <div class="card-body">
                             <div class="d-flex gap-2 flex-wrap">
+                                {{-- Send to Doctor - Commented out as no longer in use
                                 @if($visit->labResults->where('result_status', 'ready')->count() > 0 || $visit->ultrasoundResults->where('result_status', 'ready')->count() > 0)
                                     <form action="{{ route('hospital.reception.visits.send-to-doctor', $visit->id) }}" method="POST" class="d-inline">
                                         @csrf
@@ -607,7 +1322,9 @@
                                         </button>
                                     </form>
                                 @endif
+                                --}}
                                 
+                                {{-- Bill Actions - Commented out as no longer in use
                                 @php
                                     $finalBill = $visit->bills->where('bill_type', 'final')->first();
                                     $preBill = $visit->bills->where('bill_type', 'pre_bill')->first();
@@ -628,6 +1345,7 @@
                                         <i class="bx bx-receipt me-1"></i>View Pre-Bill
                                     </a>
                                 @endif
+                                --}}
                                 
                                 <a href="{{ route('hospital.reception.index') }}" class="btn btn-secondary">
                                     <i class="bx bx-arrow-back me-1"></i>Back to Reception

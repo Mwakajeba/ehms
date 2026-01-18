@@ -80,6 +80,14 @@
                                                     $billType = 'Consultation';
                                                 } elseif (str_contains($invoice->notes ?? '', 'Ultrasound')) {
                                                     $billType = 'Ultrasound';
+                                                } elseif (str_contains($invoice->notes ?? '', 'Dental')) {
+                                                    $billType = 'Dental';
+                                                } elseif (str_contains($invoice->notes ?? '', 'Vaccination')) {
+                                                    $billType = 'Vaccination';
+                                                } elseif (str_contains($invoice->notes ?? '', 'Injection')) {
+                                                    $billType = 'Injection';
+                                                } elseif (str_contains($invoice->notes ?? '', 'Pharmacy')) {
+                                                    $billType = 'Pharmacy';
                                                 }
                                                 $paymentDate = $invoice->receipts->first()->date ?? $invoice->receipts->first()->created_at ?? $invoice->updated_at;
                                             @endphp
@@ -226,6 +234,290 @@
                                                 </td>
                                                 <td>
                                                     <small class="text-muted">{{ $result->notes ?? '-' }}</small>
+                                                </td>
+                                            </tr>
+                                        @endforeach
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                @endif
+
+                @php
+                    $readyUltrasoundResults = $visit->ultrasoundResults ? $visit->ultrasoundResults->where('result_status', 'ready') : collect();
+                @endphp
+                @if($readyUltrasoundResults && $readyUltrasoundResults->count() > 0)
+                <!-- Ultrasound Results Card -->
+                <div class="col-12 mb-4">
+                    <div class="card">
+                        <div class="card-header bg-secondary text-white">
+                            <h5 class="mb-0"><i class="bx bx-scan me-2"></i>Ultrasound Results</h5>
+                        </div>
+                        <div class="card-body">
+                            <div class="table-responsive">
+                                <table class="table table-hover">
+                                    <thead>
+                                        <tr>
+                                            <th>Result #</th>
+                                            <th>Examination Type</th>
+                                            <th>Service</th>
+                                            <th>Findings</th>
+                                            <th>Impression</th>
+                                            <th>Recommendation</th>
+                                            <th>Images</th>
+                                            <th>Performed By</th>
+                                            <th>Completed At</th>
+                                            <th>Actions</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        @foreach($readyUltrasoundResults as $result)
+                                            @php
+                                                $images = $result->images ? (is_string($result->images) ? json_decode($result->images, true) : $result->images) : [];
+                                            @endphp
+                                            <tr>
+                                                <td><strong>{{ $result->result_number }}</strong></td>
+                                                <td>{{ $result->examination_type ?? 'N/A' }}</td>
+                                                <td>{{ $result->service->name ?? 'N/A' }}</td>
+                                                <td>
+                                                    <small class="text-muted">{{ $result->findings ? (strlen($result->findings) > 50 ? substr($result->findings, 0, 50) . '...' : $result->findings) : 'N/A' }}</small>
+                                                </td>
+                                                <td>
+                                                    <small class="text-muted">{{ $result->impression ? (strlen($result->impression) > 50 ? substr($result->impression, 0, 50) . '...' : $result->impression) : 'N/A' }}</small>
+                                                </td>
+                                                <td>
+                                                    <small class="text-muted">{{ $result->recommendation ? (strlen($result->recommendation) > 50 ? substr($result->recommendation, 0, 50) . '...' : $result->recommendation) : 'N/A' }}</small>
+                                                </td>
+                                                <td>
+                                                    @if(count($images) > 0)
+                                                        <span class="badge bg-info">{{ count($images) }} image(s)</span>
+                                                    @else
+                                                        <span class="text-muted">No images</span>
+                                                    @endif
+                                                </td>
+                                                <td>{{ $result->performedBy->name ?? 'N/A' }}</td>
+                                                <td>
+                                                    {{ $result->completed_at ? $result->completed_at->format('d M Y, H:i') : 'N/A' }}
+                                                </td>
+                                                <td>
+                                                    <a href="{{ route('hospital.ultrasound.show', $result->id) }}" 
+                                                       class="btn btn-sm btn-outline-secondary" 
+                                                       target="_blank"
+                                                       title="View Full Result">
+                                                        <i class="bx bx-show"></i>
+                                                    </a>
+                                                </td>
+                                            </tr>
+                                        @endforeach
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                @endif
+
+                @if($visit->dentalRecords && $visit->dentalRecords->count() > 0)
+                <!-- Dental Results Card -->
+                <div class="col-12 mb-4">
+                    <div class="card">
+                        <div class="card-header bg-info text-white">
+                            <h5 class="mb-0"><i class="bx bx-smile me-2"></i>Dental Records</h5>
+                        </div>
+                        <div class="card-body">
+                            <div class="table-responsive">
+                                <table class="table table-hover">
+                                    <thead>
+                                        <tr>
+                                            <th>Record #</th>
+                                            <th>Service</th>
+                                            <th>Procedure Type</th>
+                                            <th>Status</th>
+                                            <th>Findings</th>
+                                            <th>Treatment Performed</th>
+                                            <th>Performed By</th>
+                                            <th>Completed At</th>
+                                            <th>Actions</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        @foreach($visit->dentalRecords as $record)
+                                            @php
+                                                $statusColors = [
+                                                    'completed' => 'success',
+                                                    'follow_up_required' => 'warning',
+                                                    'pending' => 'info'
+                                                ];
+                                                $statusColor = $statusColors[$record->status] ?? 'secondary';
+                                            @endphp
+                                            <tr>
+                                                <td><strong>{{ $record->record_number }}</strong></td>
+                                                <td>{{ $record->service->name ?? 'N/A' }}</td>
+                                                <td>{{ $record->procedure_type ?? 'N/A' }}</td>
+                                                <td>
+                                                    <span class="badge bg-{{ $statusColor }}">
+                                                        {{ ucfirst(str_replace('_', ' ', $record->status)) }}
+                                                    </span>
+                                                </td>
+                                                <td>
+                                                    <small class="text-muted">{{ $record->findings ? (strlen($record->findings) > 50 ? substr($record->findings, 0, 50) . '...' : $record->findings) : 'N/A' }}</small>
+                                                </td>
+                                                <td>
+                                                    <small class="text-muted">{{ $record->treatment_performed ? (strlen($record->treatment_performed) > 50 ? substr($record->treatment_performed, 0, 50) . '...' : $record->treatment_performed) : 'N/A' }}</small>
+                                                </td>
+                                                <td>{{ $record->performedBy->name ?? 'N/A' }}</td>
+                                                <td>
+                                                    {{ $record->completed_at ? $record->completed_at->format('d M Y, H:i') : 'N/A' }}
+                                                </td>
+                                                <td>
+                                                    <a href="{{ route('hospital.dental.show', $record->id) }}" 
+                                                       class="btn btn-sm btn-outline-info" 
+                                                       target="_blank"
+                                                       title="View Full Record">
+                                                        <i class="bx bx-show"></i>
+                                                    </a>
+                                                </td>
+                                            </tr>
+                                        @endforeach
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                @endif
+
+                @if($visit->vaccinationRecords && $visit->vaccinationRecords->count() > 0)
+                <!-- Vaccination Records Card -->
+                <div class="col-12 mb-4">
+                    <div class="card">
+                        <div class="card-header bg-warning text-white">
+                            <h5 class="mb-0"><i class="bx bx-shield me-2"></i>Vaccination Records</h5>
+                        </div>
+                        <div class="card-body">
+                            <div class="table-responsive">
+                                <table class="table table-hover">
+                                    <thead>
+                                        <tr>
+                                            <th>Record #</th>
+                                            <th>Item</th>
+                                            <th>Vaccine Type</th>
+                                            <th>Status</th>
+                                            <th>Vaccine Name</th>
+                                            <th>Dosage</th>
+                                            <th>Performed By</th>
+                                            <th>Completed At</th>
+                                            <th>Actions</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        @foreach($visit->vaccinationRecords as $record)
+                                            @php
+                                                $statusColors = [
+                                                    'completed' => 'success',
+                                                    'follow_up_required' => 'warning',
+                                                    'pending' => 'info'
+                                                ];
+                                                $statusColor = $statusColors[$record->status] ?? 'secondary';
+                                            @endphp
+                                            <tr>
+                                                <td><strong>{{ $record->record_number }}</strong></td>
+                                                <td>{{ $record->item->name ?? 'N/A' }}</td>
+                                                <td>{{ $record->vaccine_type ?? 'N/A' }}</td>
+                                                <td>
+                                                    <span class="badge bg-{{ $statusColor }}">
+                                                        {{ ucfirst(str_replace('_', ' ', $record->status)) }}
+                                                    </span>
+                                                </td>
+                                                <td>
+                                                    <small class="text-muted">{{ $record->vaccine_name ?? 'N/A' }}</small>
+                                                </td>
+                                                <td>
+                                                    <small class="text-muted">{{ $record->dosage ?? 'N/A' }}</small>
+                                                </td>
+                                                <td>{{ $record->performedBy->name ?? 'N/A' }}</td>
+                                                <td>
+                                                    {{ $record->completed_at ? $record->completed_at->format('d M Y, H:i') : 'N/A' }}
+                                                </td>
+                                                <td>
+                                                    <a href="{{ route('hospital.vaccination.show', $record->id) }}" 
+                                                       class="btn btn-sm btn-outline-warning" 
+                                                       target="_blank"
+                                                       title="View Full Record">
+                                                        <i class="bx bx-show"></i>
+                                                    </a>
+                                                </td>
+                                            </tr>
+                                        @endforeach
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                @endif
+
+                @if($visit->injectionRecords && $visit->injectionRecords->count() > 0)
+                <!-- Injection Records Card -->
+                <div class="col-12 mb-4">
+                    <div class="card">
+                        <div class="card-header bg-danger text-white">
+                            <h5 class="mb-0"><i class="bx bx-injection me-2"></i>Injection Records</h5>
+                        </div>
+                        <div class="card-body">
+                            <div class="table-responsive">
+                                <table class="table table-hover">
+                                    <thead>
+                                        <tr>
+                                            <th>Record #</th>
+                                            <th>Item</th>
+                                            <th>Injection Type</th>
+                                            <th>Status</th>
+                                            <th>Medication Name</th>
+                                            <th>Dosage</th>
+                                            <th>Performed By</th>
+                                            <th>Completed At</th>
+                                            <th>Actions</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        @foreach($visit->injectionRecords as $record)
+                                            @php
+                                                $statusColors = [
+                                                    'completed' => 'success',
+                                                    'follow_up_required' => 'warning',
+                                                    'pending' => 'info'
+                                                ];
+                                                $statusColor = $statusColors[$record->status] ?? 'secondary';
+                                            @endphp
+                                            <tr>
+                                                <td><strong>{{ $record->record_number }}</strong></td>
+                                                <td>{{ $record->item->name ?? 'N/A' }}</td>
+                                                <td>{{ $record->injection_type ?? 'N/A' }}</td>
+                                                <td>
+                                                    <span class="badge bg-{{ $statusColor }}">
+                                                        {{ ucfirst(str_replace('_', ' ', $record->status)) }}
+                                                    </span>
+                                                </td>
+                                                <td>
+                                                    <small class="text-muted">{{ $record->medication_name ?? 'N/A' }}</small>
+                                                </td>
+                                                <td>
+                                                    <small class="text-muted">{{ $record->dosage ?? 'N/A' }}</small>
+                                                </td>
+                                                <td>{{ $record->performedBy->name ?? 'N/A' }}</td>
+                                                <td>
+                                                    {{ $record->completed_at ? $record->completed_at->format('d M Y, H:i') : 'N/A' }}
+                                                </td>
+                                                <td>
+                                                    <a href="{{ route('hospital.injection.show', $record->id) }}" 
+                                                       class="btn btn-sm btn-outline-danger" 
+                                                       target="_blank"
+                                                       title="View Full Record">
+                                                        <i class="bx bx-show"></i>
+                                                    </a>
                                                 </td>
                                             </tr>
                                         @endforeach
@@ -427,21 +719,21 @@
                         <div class="card-body">
                             <div class="row">
                                 <!-- Create Lab Test Bill Card -->
-                                <div class="col-md-6 mb-3">
+                                <div class="col-md-3 col-lg-3 mb-3">
                                     <div class="card border-primary h-100">
                                         <div class="card-body text-center">
                                             <i class="bx bx-test-tube font-50 text-primary mb-3"></i>
-                                            <h5 class="card-title">Create Lab Test Bill</h5>
+                                            <h5 class="card-title">Lab Test Bill</h5>
                                             <p class="card-text text-muted">Create a bill for lab tests and send patient to cashier for payment</p>
                                             <a href="{{ url('/hospital/doctor/visits/' . $visit->id . '/create-lab-bill') }}" class="btn btn-primary">
-                                                <i class="bx bx-plus me-1"></i>Create Lab Test Bill
+                                                <i class="bx bx-plus me-1"></i>Create Bill
                                             </a>
                                         </div>
                                     </div>
                                 </div>
 
                                 <!-- Diagnosis Explanation Card -->
-                                <div class="col-md-3 mb-3">
+                                <div class="col-md-3 col-lg-3 mb-3">
                                     <div class="card border-info h-100">
                                         <div class="card-body text-center">
                                             <i class="bx bx-file font-50 text-info mb-3"></i>
@@ -455,13 +747,55 @@
                                 </div>
 
                                 <!-- Pharmacy Card -->
-                                <div class="col-md-3 mb-3">
+                                <div class="col-md-3 col-lg-3 mb-3">
                                     <div class="card border-success h-100">
                                         <div class="card-body text-center">
                                             <i class="bx bx-capsule font-50 text-success mb-3"></i>
                                             <h5 class="card-title">Pharmacy</h5>
-                                            <p class="card-text text-muted">Create pharmacy bill</p>
+                                            <p class="card-text text-muted">Create pharmacy bill and send patient to cashier for payment</p>
                                             <a href="{{ route('hospital.doctor.create-pharmacy-bill', $visit->id) }}" class="btn btn-success">
+                                                <i class="bx bx-plus me-1"></i>Create Bill
+                                            </a>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- Vaccination Card -->
+                                <div class="col-md-3 col-lg-3 mb-3">
+                                    <div class="card border-warning h-100">
+                                        <div class="card-body text-center">
+                                            <i class="bx bx-shield font-50 text-warning mb-3"></i>
+                                            <h5 class="card-title">Vaccination</h5>
+                                            <p class="card-text text-muted">Create vaccination bill and send patient to cashier for payment</p>
+                                            <a href="{{ route('hospital.doctor.create-vaccination-bill', $visit->id) }}" class="btn btn-warning">
+                                                <i class="bx bx-plus me-1"></i>Create Bill
+                                            </a>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- Injection Card -->
+                                <div class="col-md-3 col-lg-3 mb-3">
+                                    <div class="card border-danger h-100">
+                                        <div class="card-body text-center">
+                                            <i class="bx bx-injection font-50 text-danger mb-3"></i>
+                                            <h5 class="card-title">Injection</h5>
+                                            <p class="card-text text-muted">Create injection bill and send patient to cashier for payment</p>
+                                            <a href="{{ route('hospital.doctor.create-injection-bill', $visit->id) }}" class="btn btn-danger">
+                                                <i class="bx bx-plus me-1"></i>Create Bill
+                                            </a>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- Dental Card -->
+                                <div class="col-md-3 col-lg-3 mb-3">
+                                    <div class="card border-info h-100">
+                                        <div class="card-body text-center">
+                                            <i class="bx bx-smile font-50 text-info mb-3"></i>
+                                            <h5 class="card-title">Dental</h5>
+                                            <p class="card-text text-muted">Create dental bill and send patient to cashier for payment</p>
+                                            <a href="{{ route('hospital.doctor.create-dental-bill', $visit->id) }}" class="btn btn-info">
                                                 <i class="bx bx-plus me-1"></i>Create Bill
                                             </a>
                                         </div>

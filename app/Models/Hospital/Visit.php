@@ -98,6 +98,21 @@ class Visit extends Model
         return $this->hasMany(DentalRecord::class);
     }
 
+    public function injectionRecords()
+    {
+        return $this->hasMany(InjectionRecord::class);
+    }
+
+    public function vaccinationRecords()
+    {
+        return $this->hasMany(VaccinationRecord::class);
+    }
+
+    public function familyPlanningRecords()
+    {
+        return $this->hasMany(FamilyPlanningRecord::class);
+    }
+
     public function rchRecords()
     {
         return $this->hasMany(RCHRecord::class);

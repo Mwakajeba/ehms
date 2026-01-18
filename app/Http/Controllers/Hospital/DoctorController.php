@@ -89,7 +89,7 @@ class DoctorController extends Controller
      */
     public function create($visitId)
     {
-        $visit = Visit::with(['patient', 'visitDepartments.department', 'triageVitals', 'bills', 'labResults.service', 'labResults.performedBy', 'diagnosisExplanation', 'pharmacyDispensations.items.product', 'pharmacyDispensations.dispensedBy'])
+        $visit = Visit::with(['patient', 'visitDepartments.department', 'triageVitals', 'bills', 'labResults.service', 'labResults.performedBy', 'ultrasoundResults.service', 'ultrasoundResults.performedBy', 'dentalRecords.service', 'dentalRecords.performedBy', 'vaccinationRecords.item', 'vaccinationRecords.performedBy', 'injectionRecords.item', 'injectionRecords.performedBy', 'diagnosisExplanation', 'pharmacyDispensations.items.product', 'pharmacyDispensations.dispensedBy'])
             ->findOrFail($visitId);
 
         // Verify access
@@ -1149,6 +1149,590 @@ class DoctorController extends Controller
         } catch (\Exception $e) {
             DB::rollBack();
             return back()->withInput()->withErrors(['error' => 'Failed to create pharmacy bill: ' . $e->getMessage()]);
+        }
+    }
+
+    /**
+     * Show vaccination bill form
+     */
+    public function createVaccinationBill($visitId)
+    {
+        $visit = Visit::with(['patient', 'visitDepartments.department', 'bills'])
+            ->findOrFail($visitId);
+
+        // Verify access
+        if ($visit->company_id !== Auth::user()->company_id) {
+            abort(403, 'Unauthorized access to visit.');
+        }
+
+        // Check if bill is cleared (VisitBill) OR has paid SalesInvoice (pre-billing)
+        $hasClearedBill = $visit->bills()->where('clearance_status', 'cleared')->exists();
+        
+        $patient = $visit->patient;
+        $hasPaidInvoice = false;
+        if ($patient) {
+            $customer = Customer::where('company_id', $patient->company_id)
+                ->where(function ($q) use ($patient) {
+                    if ($patient->phone) {
+                        $q->where('phone', $patient->phone);
+                    }
+                    if ($patient->email) {
+                        $q->orWhere('email', $patient->email);
+                    }
+                    $q->orWhere('name', $patient->full_name);
+                })
+                ->first();
+            
+            if ($customer) {
+                $hasPaidInvoice = SalesInvoice::where('customer_id', $customer->id)
+                    ->where('company_id', $patient->company_id)
+                    ->where('branch_id', $patient->branch_id)
+                    ->where('status', 'paid')
+                    ->exists();
+            }
+        }
+        
+        if (!$hasClearedBill && !$hasPaidInvoice) {
+            return redirect()->route('hospital.doctor.create', $visit->id)
+                ->withErrors(['error' => 'Patient bill must be cleared or paid before creating vaccination bill.']);
+        }
+
+        // Get all services and products from inventory_items (item_type = 'service' OR 'product')
+        $items = Item::where('company_id', Auth::user()->company_id)
+            ->whereIn('item_type', ['service', 'product'])
+            ->where('is_active', true)
+            ->orderBy('item_type')
+            ->orderBy('name')
+            ->get();
+
+        return view('hospital.doctor.create-vaccination-bill', compact('visit', 'items'));
+    }
+
+    /**
+     * Store vaccination bill and route to cashier and vaccination department
+     */
+    public function storeVaccinationBill(Request $request, $visitId)
+    {
+        $visit = Visit::with(['patient', 'visitDepartments'])->findOrFail($visitId);
+
+        // Verify access
+        if ($visit->company_id !== Auth::user()->company_id) {
+            abort(403, 'Unauthorized access to visit.');
+        }
+
+        $validated = $request->validate([
+            'items' => 'required|array|min:1',
+            'items.*.inventory_item_id' => 'required|exists:inventory_items,id',
+            'items.*.quantity' => 'required|numeric|min:0.01',
+            'items.*.unit_price' => 'required|numeric|min:0',
+            'items.*.description' => 'nullable|string',
+        ]);
+
+        try {
+            DB::beginTransaction();
+
+            $user = Auth::user();
+            $companyId = $user->company_id;
+            $branchId = session('branch_id') ?? $user->branch_id;
+
+            // Get or create customer from patient
+            $customer = $this->getOrCreateCustomerFromPatient($visit->patient);
+
+            // Create sales invoice for vaccination bill
+            $invoice = SalesInvoice::create([
+                'customer_id' => $customer->id,
+                'invoice_date' => now(),
+                'due_date' => now(), // Due immediately
+                'status' => 'draft',
+                'currency' => 'TZS',
+                'exchange_rate' => 1.000000,
+                'branch_id' => $branchId,
+                'company_id' => $companyId,
+                'created_by' => $user->id,
+                'notes' => "Vaccination bill for Visit #{$visit->visit_number} - Patient: {$visit->patient->full_name}",
+            ]);
+
+            // Add items to invoice
+            foreach ($validated['items'] as $itemData) {
+                $item = Item::find($itemData['inventory_item_id']);
+                if (!$item || !in_array($item->item_type, ['service', 'product'])) {
+                    continue;
+                }
+
+                $quantity = $itemData['quantity'];
+                $unitPrice = $itemData['unit_price'];
+                $lineTotal = $quantity * $unitPrice;
+                $description = $itemData['description'] ?? $item->description ?? '';
+
+                SalesInvoiceItem::create([
+                    'sales_invoice_id' => $invoice->id,
+                    'inventory_item_id' => $item->id,
+                    'item_name' => $item->name,
+                    'item_code' => $item->code,
+                    'description' => $description,
+                    'unit_of_measure' => $item->unit_of_measure,
+                    'quantity' => $quantity,
+                    'unit_price' => $unitPrice,
+                    'line_total' => $lineTotal,
+                    'vat_type' => 'no_vat',
+                    'vat_rate' => 0,
+                    'vat_amount' => 0,
+                    'discount_type' => null,
+                    'discount_rate' => 0,
+                    'discount_amount' => 0,
+                ]);
+            }
+
+            $invoice->updateTotals(); // Recalculate totals
+            $invoice->createDoubleEntryTransactions(); // Post to GL
+
+            // Link invoice to visit for reference
+            $visit->update(['notes' => ($visit->notes ?? '') . "\n\nVaccination Invoice: {$invoice->invoice_number}"]);
+
+            // Route patient to cashier for payment
+            $cashierDept = HospitalDepartment::where('company_id', $companyId)
+                ->where('type', 'cashier')
+                ->first();
+
+            if ($cashierDept) {
+                $existingCashierDept = $visit->visitDepartments()
+                    ->where('department_id', $cashierDept->id)
+                    ->first();
+
+                if (!$existingCashierDept) {
+                    $maxSequence = $visit->visitDepartments()->max('sequence') ?? 0;
+                    VisitDepartment::create([
+                        'visit_id' => $visit->id,
+                        'department_id' => $cashierDept->id,
+                        'status' => 'waiting',
+                        'waiting_started_at' => now(),
+                        'sequence' => $maxSequence + 1,
+                    ]);
+                } else {
+                    $existingCashierDept->status = 'waiting';
+                    $existingCashierDept->waiting_started_at = now();
+                    $existingCashierDept->save();
+                }
+            }
+
+            // Route to vaccination department (after payment, vaccination will see it)
+            $vaccinationDept = HospitalDepartment::where('company_id', $companyId)
+                ->where('type', 'vaccine')
+                ->first();
+
+            if ($vaccinationDept) {
+                $existingVaccinationDept = $visit->visitDepartments()
+                    ->where('department_id', $vaccinationDept->id)
+                    ->first();
+
+                if (!$existingVaccinationDept) {
+                    $maxSequence = $visit->visitDepartments()->max('sequence') ?? 0;
+                    VisitDepartment::create([
+                        'visit_id' => $visit->id,
+                        'department_id' => $vaccinationDept->id,
+                        'status' => 'waiting',
+                        'waiting_started_at' => null, // Will be set after payment
+                        'sequence' => $maxSequence + 1,
+                    ]);
+                }
+            }
+
+            DB::commit();
+
+            return redirect()->route('sales.invoices.show', $invoice->encoded_id)
+                ->with('success', 'Vaccination bill created successfully. Patient has been sent to cashier for payment.');
+        } catch (\Exception $e) {
+            DB::rollBack();
+            return back()->withInput()->withErrors(['error' => 'Failed to create vaccination bill: ' . $e->getMessage()]);
+        }
+    }
+
+    /**
+     * Show injection bill form
+     */
+    public function createInjectionBill($visitId)
+    {
+        $visit = Visit::with(['patient', 'visitDepartments.department', 'bills'])
+            ->findOrFail($visitId);
+
+        // Verify access
+        if ($visit->company_id !== Auth::user()->company_id) {
+            abort(403, 'Unauthorized access to visit.');
+        }
+
+        // Check if bill is cleared (VisitBill) OR has paid SalesInvoice (pre-billing)
+        $hasClearedBill = $visit->bills()->where('clearance_status', 'cleared')->exists();
+        
+        $patient = $visit->patient;
+        $hasPaidInvoice = false;
+        if ($patient) {
+            $customer = Customer::where('company_id', $patient->company_id)
+                ->where(function ($q) use ($patient) {
+                    if ($patient->phone) {
+                        $q->where('phone', $patient->phone);
+                    }
+                    if ($patient->email) {
+                        $q->orWhere('email', $patient->email);
+                    }
+                    $q->orWhere('name', $patient->full_name);
+                })
+                ->first();
+            
+            if ($customer) {
+                $hasPaidInvoice = SalesInvoice::where('customer_id', $customer->id)
+                    ->where('company_id', $patient->company_id)
+                    ->where('branch_id', $patient->branch_id)
+                    ->where('status', 'paid')
+                    ->exists();
+            }
+        }
+        
+        if (!$hasClearedBill && !$hasPaidInvoice) {
+            return redirect()->route('hospital.doctor.create', $visit->id)
+                ->withErrors(['error' => 'Patient bill must be cleared or paid before creating injection bill.']);
+        }
+
+        // Get all services and products from inventory_items (item_type = 'service' OR 'product')
+        $items = Item::where('company_id', Auth::user()->company_id)
+            ->whereIn('item_type', ['service', 'product'])
+            ->where('is_active', true)
+            ->orderBy('item_type')
+            ->orderBy('name')
+            ->get();
+
+        return view('hospital.doctor.create-injection-bill', compact('visit', 'items'));
+    }
+
+    /**
+     * Store injection bill and route to cashier and vaccination department
+     */
+    public function storeInjectionBill(Request $request, $visitId)
+    {
+        $visit = Visit::with(['patient', 'visitDepartments'])->findOrFail($visitId);
+
+        // Verify access
+        if ($visit->company_id !== Auth::user()->company_id) {
+            abort(403, 'Unauthorized access to visit.');
+        }
+
+        $validated = $request->validate([
+            'items' => 'required|array|min:1',
+            'items.*.inventory_item_id' => 'required|exists:inventory_items,id',
+            'items.*.quantity' => 'required|numeric|min:0.01',
+            'items.*.unit_price' => 'required|numeric|min:0',
+            'items.*.description' => 'nullable|string',
+        ]);
+
+        try {
+            DB::beginTransaction();
+
+            $user = Auth::user();
+            $companyId = $user->company_id;
+            $branchId = session('branch_id') ?? $user->branch_id;
+
+            // Get or create customer from patient
+            $customer = $this->getOrCreateCustomerFromPatient($visit->patient);
+
+            // Create sales invoice for injection bill
+            $invoice = SalesInvoice::create([
+                'customer_id' => $customer->id,
+                'invoice_date' => now(),
+                'due_date' => now(), // Due immediately
+                'status' => 'draft',
+                'currency' => 'TZS',
+                'exchange_rate' => 1.000000,
+                'branch_id' => $branchId,
+                'company_id' => $companyId,
+                'created_by' => $user->id,
+                'notes' => "Injection bill for Visit #{$visit->visit_number} - Patient: {$visit->patient->full_name}",
+            ]);
+
+            // Add items to invoice
+            foreach ($validated['items'] as $itemData) {
+                $item = Item::find($itemData['inventory_item_id']);
+                if (!$item || !in_array($item->item_type, ['service', 'product'])) {
+                    continue;
+                }
+
+                $quantity = $itemData['quantity'];
+                $unitPrice = $itemData['unit_price'];
+                $lineTotal = $quantity * $unitPrice;
+                $description = $itemData['description'] ?? $item->description ?? '';
+
+                SalesInvoiceItem::create([
+                    'sales_invoice_id' => $invoice->id,
+                    'inventory_item_id' => $item->id,
+                    'item_name' => $item->name,
+                    'item_code' => $item->code,
+                    'description' => $description,
+                    'unit_of_measure' => $item->unit_of_measure,
+                    'quantity' => $quantity,
+                    'unit_price' => $unitPrice,
+                    'line_total' => $lineTotal,
+                    'vat_type' => 'no_vat',
+                    'vat_rate' => 0,
+                    'vat_amount' => 0,
+                    'discount_type' => null,
+                    'discount_rate' => 0,
+                    'discount_amount' => 0,
+                ]);
+            }
+
+            $invoice->updateTotals(); // Recalculate totals
+            $invoice->createDoubleEntryTransactions(); // Post to GL
+
+            // Link invoice to visit for reference
+            $visit->update(['notes' => ($visit->notes ?? '') . "\n\nInjection Invoice: {$invoice->invoice_number}"]);
+
+            // Route patient to cashier for payment
+            $cashierDept = HospitalDepartment::where('company_id', $companyId)
+                ->where('type', 'cashier')
+                ->first();
+
+            if ($cashierDept) {
+                $existingCashierDept = $visit->visitDepartments()
+                    ->where('department_id', $cashierDept->id)
+                    ->first();
+
+                if (!$existingCashierDept) {
+                    $maxSequence = $visit->visitDepartments()->max('sequence') ?? 0;
+                    VisitDepartment::create([
+                        'visit_id' => $visit->id,
+                        'department_id' => $cashierDept->id,
+                        'status' => 'waiting',
+                        'waiting_started_at' => now(),
+                        'sequence' => $maxSequence + 1,
+                    ]);
+                } else {
+                    $existingCashierDept->status = 'waiting';
+                    $existingCashierDept->waiting_started_at = now();
+                    $existingCashierDept->save();
+                }
+            }
+
+            // Route to vaccination department (after payment, vaccination will see it)
+            $vaccinationDept = HospitalDepartment::where('company_id', $companyId)
+                ->where('type', 'vaccine')
+                ->first();
+
+            if ($vaccinationDept) {
+                $existingVaccinationDept = $visit->visitDepartments()
+                    ->where('department_id', $vaccinationDept->id)
+                    ->first();
+
+                if (!$existingVaccinationDept) {
+                    $maxSequence = $visit->visitDepartments()->max('sequence') ?? 0;
+                    VisitDepartment::create([
+                        'visit_id' => $visit->id,
+                        'department_id' => $vaccinationDept->id,
+                        'status' => 'waiting',
+                        'waiting_started_at' => null, // Will be set after payment
+                        'sequence' => $maxSequence + 1,
+                    ]);
+                }
+            }
+
+            DB::commit();
+
+            return redirect()->route('sales.invoices.show', $invoice->encoded_id)
+                ->with('success', 'Injection bill created successfully. Patient has been sent to cashier for payment.');
+        } catch (\Exception $e) {
+            DB::rollBack();
+            return back()->withInput()->withErrors(['error' => 'Failed to create injection bill: ' . $e->getMessage()]);
+        }
+    }
+
+    /**
+     * Show dental bill form
+     */
+    public function createDentalBill($visitId)
+    {
+        $visit = Visit::with(['patient', 'visitDepartments.department', 'bills'])
+            ->findOrFail($visitId);
+
+        // Verify access
+        if ($visit->company_id !== Auth::user()->company_id) {
+            abort(403, 'Unauthorized access to visit.');
+        }
+
+        // Check if bill is cleared (VisitBill) OR has paid SalesInvoice (pre-billing)
+        $hasClearedBill = $visit->bills()->where('clearance_status', 'cleared')->exists();
+        
+        $patient = $visit->patient;
+        $hasPaidInvoice = false;
+        if ($patient) {
+            $customer = Customer::where('company_id', $patient->company_id)
+                ->where(function ($q) use ($patient) {
+                    if ($patient->phone) {
+                        $q->where('phone', $patient->phone);
+                    }
+                    if ($patient->email) {
+                        $q->orWhere('email', $patient->email);
+                    }
+                    $q->orWhere('name', $patient->full_name);
+                })
+                ->first();
+            
+            if ($customer) {
+                $hasPaidInvoice = SalesInvoice::where('customer_id', $customer->id)
+                    ->where('company_id', $patient->company_id)
+                    ->where('branch_id', $patient->branch_id)
+                    ->where('status', 'paid')
+                    ->exists();
+            }
+        }
+        
+        if (!$hasClearedBill && !$hasPaidInvoice) {
+            return redirect()->route('hospital.doctor.create', $visit->id)
+                ->withErrors(['error' => 'Patient bill must be cleared or paid before creating dental bill.']);
+        }
+
+        // Get only services from inventory_items (item_type = 'service')
+        $services = Item::where('company_id', Auth::user()->company_id)
+            ->where('item_type', 'service')
+            ->where('is_active', true)
+            ->orderBy('name')
+            ->get();
+
+        return view('hospital.doctor.create-dental-bill', compact('visit', 'services'));
+    }
+
+    /**
+     * Store dental bill and route to cashier and dental department
+     */
+    public function storeDentalBill(Request $request, $visitId)
+    {
+        $visit = Visit::with(['patient', 'visitDepartments'])->findOrFail($visitId);
+
+        // Verify access
+        if ($visit->company_id !== Auth::user()->company_id) {
+            abort(403, 'Unauthorized access to visit.');
+        }
+
+        $validated = $request->validate([
+            'items' => 'required|array|min:1',
+            'items.*.inventory_item_id' => 'required|exists:inventory_items,id',
+            'items.*.quantity' => 'required|numeric|min:0.01',
+            'items.*.unit_price' => 'required|numeric|min:0',
+            'items.*.description' => 'nullable|string',
+        ]);
+
+        try {
+            DB::beginTransaction();
+
+            $user = Auth::user();
+            $companyId = $user->company_id;
+            $branchId = session('branch_id') ?? $user->branch_id;
+
+            // Get or create customer from patient
+            $customer = $this->getOrCreateCustomerFromPatient($visit->patient);
+
+            // Create sales invoice for dental bill
+            $invoice = SalesInvoice::create([
+                'customer_id' => $customer->id,
+                'invoice_date' => now(),
+                'due_date' => now(), // Due immediately
+                'status' => 'draft',
+                'currency' => 'TZS',
+                'exchange_rate' => 1.000000,
+                'branch_id' => $branchId,
+                'company_id' => $companyId,
+                'created_by' => $user->id,
+                'notes' => "Dental bill for Visit #{$visit->visit_number} - Patient: {$visit->patient->full_name}",
+            ]);
+
+            // Add items to invoice (only services)
+            foreach ($validated['items'] as $itemData) {
+                $item = Item::find($itemData['inventory_item_id']);
+                if (!$item || $item->item_type !== 'service') {
+                    continue;
+                }
+
+                $quantity = $itemData['quantity'];
+                $unitPrice = $itemData['unit_price'];
+                $lineTotal = $quantity * $unitPrice;
+                $description = $itemData['description'] ?? $item->description ?? '';
+
+                SalesInvoiceItem::create([
+                    'sales_invoice_id' => $invoice->id,
+                    'inventory_item_id' => $item->id,
+                    'item_name' => $item->name,
+                    'item_code' => $item->code,
+                    'description' => $description,
+                    'unit_of_measure' => $item->unit_of_measure,
+                    'quantity' => $quantity,
+                    'unit_price' => $unitPrice,
+                    'line_total' => $lineTotal,
+                    'vat_type' => 'no_vat',
+                    'vat_rate' => 0,
+                    'vat_amount' => 0,
+                    'discount_type' => null,
+                    'discount_rate' => 0,
+                    'discount_amount' => 0,
+                ]);
+            }
+
+            $invoice->updateTotals(); // Recalculate totals
+            $invoice->createDoubleEntryTransactions(); // Post to GL
+
+            // Link invoice to visit for reference
+            $visit->update(['notes' => ($visit->notes ?? '') . "\n\nDental Invoice: {$invoice->invoice_number}"]);
+
+            // Route patient to cashier for payment
+            $cashierDept = HospitalDepartment::where('company_id', $companyId)
+                ->where('type', 'cashier')
+                ->first();
+
+            if ($cashierDept) {
+                $existingCashierDept = $visit->visitDepartments()
+                    ->where('department_id', $cashierDept->id)
+                    ->first();
+
+                if (!$existingCashierDept) {
+                    $maxSequence = $visit->visitDepartments()->max('sequence') ?? 0;
+                    VisitDepartment::create([
+                        'visit_id' => $visit->id,
+                        'department_id' => $cashierDept->id,
+                        'status' => 'waiting',
+                        'waiting_started_at' => now(),
+                        'sequence' => $maxSequence + 1,
+                    ]);
+                } else {
+                    $existingCashierDept->status = 'waiting';
+                    $existingCashierDept->waiting_started_at = now();
+                    $existingCashierDept->save();
+                }
+            }
+
+            // Route to dental department (after payment, dental will see it)
+            $dentalDept = HospitalDepartment::where('company_id', $companyId)
+                ->where('type', 'dental')
+                ->first();
+
+            if ($dentalDept) {
+                $existingDentalDept = $visit->visitDepartments()
+                    ->where('department_id', $dentalDept->id)
+                    ->first();
+
+                if (!$existingDentalDept) {
+                    $maxSequence = $visit->visitDepartments()->max('sequence') ?? 0;
+                    VisitDepartment::create([
+                        'visit_id' => $visit->id,
+                        'department_id' => $dentalDept->id,
+                        'status' => 'waiting',
+                        'waiting_started_at' => null, // Will be set after payment
+                        'sequence' => $maxSequence + 1,
+                    ]);
+                }
+            }
+
+            DB::commit();
+
+            return redirect()->route('sales.invoices.show', $invoice->encoded_id)
+                ->with('success', 'Dental bill created successfully. Patient has been sent to cashier for payment.');
+        } catch (\Exception $e) {
+            DB::rollBack();
+            return back()->withInput()->withErrors(['error' => 'Failed to create dental bill: ' . $e->getMessage()]);
         }
     }
 }

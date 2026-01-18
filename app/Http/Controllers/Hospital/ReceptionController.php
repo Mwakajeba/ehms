@@ -417,12 +417,56 @@ class ReceptionController extends Controller
             'visitDepartments.servedBy',
             'bills.items',
             'triageVitals',
-            'consultation',
+            'consultation.doctor',
+            'labResults.service',
             'labResults.performedBy',
+            'ultrasoundResults.service',
             'ultrasoundResults.performedBy',
+            'dentalRecords.service',
+            'dentalRecords.performedBy',
+            'vaccinationRecords.item',
+            'vaccinationRecords.performedBy',
+            'injectionRecords.item',
+            'injectionRecords.performedBy',
+            'diagnosisExplanation',
+            'pharmacyDispensations.items.product',
+            'pharmacyDispensations.dispensedBy',
         ])->findOrFail($id);
 
-        return view('hospital.reception.visits.show', compact('visit'));
+        // Get paid invoices for this visit
+        $paidInvoices = collect();
+        $patient = $visit->patient;
+        
+        if ($patient) {
+            $customer = Customer::where('company_id', $patient->company_id)
+                ->where(function ($q) use ($patient) {
+                    if ($patient->phone) {
+                        $q->where('phone', $patient->phone);
+                    }
+                    if ($patient->email) {
+                        $q->orWhere('email', $patient->email);
+                    }
+                    $q->orWhere('name', $patient->full_name);
+                })
+                ->first();
+            
+            if ($customer) {
+                // Get all paid invoices for this visit (check notes for visit number)
+                $paidInvoices = SalesInvoice::where('customer_id', $customer->id)
+                    ->where('company_id', $patient->company_id)
+                    ->where('branch_id', $patient->branch_id)
+                    ->where('status', 'paid')
+                    ->where(function ($q) use ($visit) {
+                        $q->where('notes', 'like', "%Visit #{$visit->visit_number}%")
+                          ->orWhere('notes', 'like', "%for Visit #{$visit->visit_number}%");
+                    })
+                    ->with(['items.inventoryItem', 'customer', 'receipts'])
+                    ->orderBy('created_at', 'desc')
+                    ->get();
+            }
+        }
+
+        return view('hospital.reception.visits.show', compact('visit', 'paidInvoices'));
     }
 
     /**

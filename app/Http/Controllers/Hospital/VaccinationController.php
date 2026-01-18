@@ -5,19 +5,17 @@ namespace App\Http\Controllers\Hospital;
 use App\Http\Controllers\Controller;
 use App\Models\Hospital\Visit;
 use App\Models\Hospital\VisitDepartment;
-use App\Models\Hospital\DentalRecord;
-use App\Models\Inventory\Item;
+use App\Models\Hospital\VaccinationRecord;
 use App\Models\Customer;
 use App\Models\Sales\SalesInvoice;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Storage;
 
-class DentalController extends Controller
+class VaccinationController extends Controller
 {
     /**
-     * Display dental dashboard
+     * Display vaccination dashboard
      */
     public function index()
     {
@@ -25,13 +23,13 @@ class DentalController extends Controller
         $companyId = $user->company_id;
         $branchId = session('branch_id') ?? $user->branch_id;
 
-        // Get visits waiting for dental (bills must be cleared OR paid SalesInvoice)
+        // Get visits waiting for vaccination (bills must be cleared OR paid SalesInvoice for vaccination)
         $waitingVisits = Visit::with(['patient', 'visitDepartments.department', 'bills'])
             ->where('company_id', $companyId)
             ->where('branch_id', $branchId)
             ->whereHas('visitDepartments', function ($q) {
                 $q->whereHas('department', function ($query) {
-                    $query->where('type', 'dental');
+                    $query->where('type', 'vaccine');
                 })->where('status', 'waiting');
             })
             ->where(function ($query) use ($companyId, $branchId) {
@@ -39,7 +37,7 @@ class DentalController extends Controller
                 $query->whereHas('bills', function ($q) {
                     $q->where('clearance_status', 'cleared');
                 })
-                // OR has Customer with paid SalesInvoice matching patient (new pre-billing flow)
+                // OR has Customer with paid SalesInvoice for vaccination matching patient (new pre-billing flow)
                 ->orWhereExists(function ($subQuery) use ($companyId, $branchId) {
                     $subQuery->select(DB::raw(1))
                         ->from('sales_invoices')
@@ -48,6 +46,7 @@ class DentalController extends Controller
                         ->where('sales_invoices.company_id', $companyId)
                         ->where('sales_invoices.branch_id', $branchId)
                         ->where('sales_invoices.status', 'paid')
+                        ->where('sales_invoices.notes', 'like', '%Vaccination bill for Visit #%')
                         ->where(function ($q) {
                             $q->whereColumn('customers.phone', 'patients.phone')
                                 ->orWhereColumn('customers.email', 'patients.email')
@@ -58,27 +57,27 @@ class DentalController extends Controller
             ->orderBy('visit_date', 'asc')
             ->get();
 
-        // Get visits in service at dental
-        $inServiceVisits = Visit::with(['patient', 'visitDepartments.department', 'dentalRecords'])
+        // Get visits in service at vaccination
+        $inServiceVisits = Visit::with(['patient', 'visitDepartments.department', 'vaccinationRecords'])
             ->where('company_id', $companyId)
             ->where('branch_id', $branchId)
             ->whereHas('visitDepartments', function ($q) {
                 $q->whereHas('department', function ($query) {
-                    $query->where('type', 'dental');
+                    $query->where('type', 'vaccine');
                 })->where('status', 'in_service');
             })
             ->orderBy('visit_date', 'asc')
             ->get();
 
         // Get completed records today
-        $completedToday = DentalRecord::where('company_id', $companyId)
+        $completedToday = VaccinationRecord::where('company_id', $companyId)
             ->where('branch_id', $branchId)
             ->where('status', 'completed')
             ->whereDate('completed_at', today())
             ->count();
 
         // Get follow-up required records
-        $followUpRequired = DentalRecord::with(['patient', 'visit'])
+        $followUpRequired = VaccinationRecord::with(['patient', 'visit'])
             ->where('company_id', $companyId)
             ->where('branch_id', $branchId)
             ->where('status', 'follow_up_required')
@@ -94,15 +93,15 @@ class DentalController extends Controller
             'follow_up_required' => $followUpRequired->count(),
         ];
 
-        return view('hospital.dental.index', compact('waitingVisits', 'inServiceVisits', 'followUpRequired', 'stats'));
+        return view('hospital.vaccination.index', compact('waitingVisits', 'inServiceVisits', 'followUpRequired', 'stats'));
     }
 
     /**
-     * Show dental procedure form for a visit
+     * Show vaccination form for a visit
      */
     public function create($visitId)
     {
-        $visit = Visit::with(['patient', 'visitDepartments.department', 'bills', 'dentalRecords.service', 'dentalRecords.performedBy'])
+        $visit = Visit::with(['patient', 'visitDepartments.department', 'bills', 'vaccinationRecords.item', 'vaccinationRecords.performedBy'])
             ->findOrFail($visitId);
 
         // Verify access
@@ -113,11 +112,20 @@ class DentalController extends Controller
         // Check if bill is cleared (VisitBill) OR has paid SalesInvoice (pre-billing)
         $hasClearedBill = $visit->bills()->where('clearance_status', 'cleared')->exists();
         
+        // Get vaccine department status - if already in_service, allow access
+        $vaccinationDept = $visit->visitDepartments()
+            ->whereHas('department', function ($q) {
+                $q->where('type', 'vaccine');
+            })
+            ->first();
+
+        $isInService = $vaccinationDept && $vaccinationDept->status === 'in_service';
+        
         // Check if patient has paid SalesInvoice (match Customer by name/phone/email)
         $patient = $visit->patient;
         $hasPaidInvoice = false;
-        $dentalInvoice = null;
-        $dentalInvoiceItems = collect();
+        $vaccinationInvoice = null;
+        $vaccinationInvoiceItems = collect();
         
         if ($patient) {
             $customer = Customer::where('company_id', $patient->company_id)
@@ -133,44 +141,50 @@ class DentalController extends Controller
                 ->first();
             
             if ($customer) {
-                // Get paid SalesInvoice for dental services (check notes for visit number)
-                $dentalInvoice = SalesInvoice::where('customer_id', $customer->id)
+                // Try exact match first (visit number in notes)
+                $vaccinationInvoice = SalesInvoice::where('customer_id', $customer->id)
                     ->where('company_id', $patient->company_id)
                     ->where('branch_id', $patient->branch_id)
                     ->where('status', 'paid')
-                    ->where('notes', 'like', "%Dental bill for Visit #{$visit->visit_number}%")
+                    ->where('notes', 'like', "%Vaccination bill for Visit #{$visit->visit_number}%")
                     ->with(['items.inventoryItem'])
                     ->first();
                 
-                if ($dentalInvoice) {
+                // If not found and in service, try broader search (just "Vaccination bill")
+                if (!$vaccinationInvoice && $isInService) {
+                    $vaccinationInvoice = SalesInvoice::where('customer_id', $customer->id)
+                        ->where('company_id', $patient->company_id)
+                        ->where('branch_id', $patient->branch_id)
+                        ->where('status', 'paid')
+                        ->where('notes', 'like', '%Vaccination bill%')
+                        ->with(['items.inventoryItem'])
+                        ->orderBy('created_at', 'desc')
+                        ->first();
+                }
+                
+                if ($vaccinationInvoice) {
                     $hasPaidInvoice = true;
-                    $dentalInvoiceItems = $dentalInvoice->items;
+                    $vaccinationInvoiceItems = $vaccinationInvoice->items;
                 }
             }
         }
         
-        if (!$hasClearedBill && !$hasPaidInvoice) {
-            return redirect()->route('hospital.dental.index')
-                ->withErrors(['error' => 'Patient bill must be cleared or paid before dental procedure.']);
+        // Only check bill/invoice if not already in service
+        if (!$isInService && !$hasClearedBill && !$hasPaidInvoice) {
+            return redirect()->route('hospital.vaccination.index')
+                ->withErrors(['error' => 'Patient bill must be cleared or paid before vaccination procedure.']);
         }
 
-        // Get existing dental records for this visit, keyed by service_id
-        $existingRecords = DentalRecord::where('visit_id', $visit->id)
+        // Get existing vaccination records for this visit, keyed by item_id
+        $existingRecords = VaccinationRecord::where('visit_id', $visit->id)
             ->get()
-            ->keyBy('service_id');
+            ->keyBy('item_id');
 
-        // Get dental department status
-        $dentalDept = $visit->visitDepartments()
-            ->whereHas('department', function ($q) {
-                $q->where('type', 'dental');
-            })
-            ->first();
-
-        return view('hospital.dental.create', compact('visit', 'dentalInvoice', 'dentalInvoiceItems', 'existingRecords', 'dentalDept'));
+        return view('hospital.vaccination.create', compact('visit', 'vaccinationInvoice', 'vaccinationInvoiceItems', 'existingRecords', 'vaccinationDept'));
     }
 
     /**
-     * Store dental records (multiple services)
+     * Store vaccination records (multiple items - services and products)
      */
     public function store(Request $request, $visitId)
     {
@@ -183,10 +197,10 @@ class DentalController extends Controller
 
         $validated = $request->validate([
             'records' => 'required|array|min:1',
-            'records.*.service_id' => 'required|exists:inventory_items,id',
-            'records.*.service_name' => 'nullable|string|max:255',
-            'records.*.record_id' => 'nullable|exists:dental_records,id',
-            'records.*.procedure_type' => 'required|string|max:255',
+            'records.*.item_id' => 'required|exists:inventory_items,id',
+            'records.*.item_name' => 'nullable|string|max:255',
+            'records.*.record_id' => 'nullable|exists:vaccination_records,id',
+            'records.*.vaccine_type' => 'required|string|max:255',
             'records.*.status' => 'required|in:pending,completed,follow_up_required',
         ]);
 
@@ -198,27 +212,27 @@ class DentalController extends Controller
             $branchId = session('branch_id') ?? $user->branch_id;
 
             $allCompleted = true;
-            $recordCounter = DentalRecord::whereDate('created_at', today())->count();
+            $recordCounter = VaccinationRecord::whereDate('created_at', today())->count();
 
             // Process each record
             foreach ($validated['records'] as $recordData) {
-                if (empty($recordData['service_id']) || empty($recordData['procedure_type'])) {
+                if (empty($recordData['item_id']) || empty($recordData['vaccine_type'])) {
                     continue; // Skip empty records
                 }
 
                 // Check if record already exists
                 $existingRecord = null;
                 if (!empty($recordData['record_id'])) {
-                    $existingRecord = DentalRecord::where('id', $recordData['record_id'])
+                    $existingRecord = VaccinationRecord::where('id', $recordData['record_id'])
                         ->where('visit_id', $visit->id)
-                        ->where('service_id', $recordData['service_id'])
+                        ->where('item_id', $recordData['item_id'])
                         ->first();
                 }
 
                 if ($existingRecord) {
                     // Update existing record
                     $existingRecord->update([
-                        'procedure_type' => $recordData['procedure_type'],
+                        'vaccine_type' => $recordData['vaccine_type'],
                         'status' => $recordData['status'],
                         'completed_at' => $recordData['status'] === 'completed' ? now() : null,
                         'performed_by' => $user->id,
@@ -230,14 +244,14 @@ class DentalController extends Controller
                 } else {
                     // Create new record
                     $recordCounter++;
-                    $recordNumber = 'DENT-' . now()->format('Ymd') . '-' . str_pad($recordCounter, 4, '0', STR_PAD_LEFT);
+                    $recordNumber = 'VAC-' . now()->format('Ymd') . '-' . str_pad($recordCounter, 4, '0', STR_PAD_LEFT);
 
-                    DentalRecord::create([
+                    VaccinationRecord::create([
                         'record_number' => $recordNumber,
                         'visit_id' => $visit->id,
                         'patient_id' => $visit->patient_id,
-                        'service_id' => $recordData['service_id'],
-                        'procedure_type' => $recordData['procedure_type'],
+                        'item_id' => $recordData['item_id'],
+                        'vaccine_type' => $recordData['vaccine_type'],
                         'status' => $recordData['status'],
                         'completed_at' => $recordData['status'] === 'completed' ? now() : null,
                         'performed_by' => $user->id,
@@ -251,55 +265,50 @@ class DentalController extends Controller
                 }
             }
 
-            // Update dental visit department status to completed if all services are completed
+            // Update vaccination visit department status to completed if all items are completed
             if ($allCompleted) {
-                $dentalDept = $visit->visitDepartments()
+                $vaccinationDept = $visit->visitDepartments()
                     ->whereHas('department', function ($q) {
-                        $q->where('type', 'dental');
+                        $q->where('type', 'vaccine');
                     })
                     ->first();
 
-                if ($dentalDept && $dentalDept->status === 'in_service') {
-                    $dentalDept->status = 'completed';
-                    $dentalDept->service_ended_at = now();
-                    $dentalDept->calculateServiceTime();
-                    $dentalDept->save();
+                if ($vaccinationDept && $vaccinationDept->status === 'in_service') {
+                    $vaccinationDept->status = 'completed';
+                    $vaccinationDept->service_ended_at = now();
+                    $vaccinationDept->calculateServiceTime();
+                    $vaccinationDept->save();
                 }
             }
 
             DB::commit();
 
-            return redirect()->route('hospital.dental.create', $visit->id)
-                ->with('success', 'Dental records saved successfully.');
+            return redirect()->route('hospital.vaccination.create', $visit->id)
+                ->with('success', 'Vaccination records saved successfully.');
         } catch (\Exception $e) {
             DB::rollBack();
-            return back()->withInput()->withErrors(['error' => 'Failed to save dental records: ' . $e->getMessage()]);
+            return back()->withInput()->withErrors(['error' => 'Failed to save vaccination records: ' . $e->getMessage()]);
         }
     }
 
     /**
-     * Show dental record details
+     * Show vaccination record details
      */
     public function show($id)
     {
-        $dentalRecord = DentalRecord::with([
+        $vaccinationRecord = VaccinationRecord::with([
             'patient',
             'visit',
+            'item',
             'performedBy',
         ])->findOrFail($id);
 
         // Verify access
-        if ($dentalRecord->company_id !== Auth::user()->company_id) {
-            abort(403, 'Unauthorized access to dental record.');
+        if ($vaccinationRecord->company_id !== Auth::user()->company_id) {
+            abort(403, 'Unauthorized access to vaccination record.');
         }
 
-        // Decode images if present
-        $images = [];
-        if ($dentalRecord->images) {
-            $images = json_decode($dentalRecord->images, true) ?? [];
-        }
-
-        return view('hospital.dental.show', compact('dentalRecord', 'images'));
+        return view('hospital.vaccination.show', compact('vaccinationRecord'));
     }
 
     /**
@@ -314,27 +323,27 @@ class DentalController extends Controller
             abort(403, 'Unauthorized access to visit.');
         }
 
-        // Find dental department
-        $dentalDept = $visit->visitDepartments()
+        // Find vaccination department
+        $vaccinationDept = $visit->visitDepartments()
             ->whereHas('department', function ($q) {
-                $q->where('type', 'dental');
+                $q->where('type', 'vaccine');
             })
             ->where('status', 'waiting')
             ->first();
 
-        if (!$dentalDept) {
-            return back()->withErrors(['error' => 'Dental department not found or already started.']);
+        if (!$vaccinationDept) {
+            return back()->withErrors(['error' => 'Vaccination department not found or already started.']);
         }
 
         try {
-            $dentalDept->status = 'in_service';
-            $dentalDept->service_started_at = now();
-            $dentalDept->served_by = Auth::id();
-            $dentalDept->calculateWaitingTime();
-            $dentalDept->save();
+            $vaccinationDept->status = 'in_service';
+            $vaccinationDept->service_started_at = now();
+            $vaccinationDept->served_by = Auth::id();
+            $vaccinationDept->calculateWaitingTime();
+            $vaccinationDept->save();
 
-            return redirect()->route('hospital.dental.index')
-                ->with('success', 'Dental service started.');
+            return redirect()->route('hospital.vaccination.index')
+                ->with('success', 'Vaccination service started.');
         } catch (\Exception $e) {
             return back()->withErrors(['error' => 'Failed to start service: ' . $e->getMessage()]);
         }
@@ -345,36 +354,36 @@ class DentalController extends Controller
      */
     public function markCompleted($id)
     {
-        $dentalRecord = DentalRecord::findOrFail($id);
+        $vaccinationRecord = VaccinationRecord::findOrFail($id);
 
         // Verify access
-        if ($dentalRecord->company_id !== Auth::user()->company_id) {
-            abort(403, 'Unauthorized access to dental record.');
+        if ($vaccinationRecord->company_id !== Auth::user()->company_id) {
+            abort(403, 'Unauthorized access to vaccination record.');
         }
 
         try {
-            $dentalRecord->status = 'completed';
-            $dentalRecord->completed_at = now();
-            $dentalRecord->save();
+            $vaccinationRecord->status = 'completed';
+            $vaccinationRecord->completed_at = now();
+            $vaccinationRecord->save();
 
-            // Update dental visit department status to completed
-            $visit = $dentalRecord->visit;
-            $dentalDept = $visit->visitDepartments()
+            // Update vaccination visit department status to completed
+            $visit = $vaccinationRecord->visit;
+            $vaccinationDept = $visit->visitDepartments()
                 ->whereHas('department', function ($q) {
-                    $q->where('type', 'dental');
+                    $q->where('type', 'vaccine');
                 })
                 ->where('status', 'in_service')
                 ->first();
 
-            if ($dentalDept) {
-                $dentalDept->status = 'completed';
-                $dentalDept->service_ended_at = now();
-                $dentalDept->calculateServiceTime();
-                $dentalDept->save();
+            if ($vaccinationDept) {
+                $vaccinationDept->status = 'completed';
+                $vaccinationDept->service_ended_at = now();
+                $vaccinationDept->calculateServiceTime();
+                $vaccinationDept->save();
             }
 
-            return redirect()->route('hospital.dental.show', $dentalRecord->id)
-                ->with('success', 'Dental record marked as completed.');
+            return redirect()->route('hospital.vaccination.show', $vaccinationRecord->id)
+                ->with('success', 'Vaccination record marked as completed.');
         } catch (\Exception $e) {
             return back()->withErrors(['error' => 'Failed to mark record as completed: ' . $e->getMessage()]);
         }
