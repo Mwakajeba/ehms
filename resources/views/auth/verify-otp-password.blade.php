@@ -12,7 +12,7 @@
                         <div class="card-body">
                             <div class="p-4 rounded">
                                 <div class="text-center">
-                                    <img src="{{ asset('assets/images/icons/lock.png') }}" width="100" alt="Lock Icon" />
+                                    <img src="{{ asset('assets/images/icons/lock.jpeg') }}" width="100" alt="Lock Icon" />
                                 </div>
                                 <div class="login-separater text-center mb-4">
                                     <span>VERIFY YOUR PHONE</span>
