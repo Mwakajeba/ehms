@@ -75,6 +75,7 @@
                                                 <option value="doctor" {{ old('type') == 'doctor' ? 'selected' : '' }}>Doctor</option>
                                                 <option value="lab" {{ old('type') == 'lab' ? 'selected' : '' }}>Lab</option>
                                                 <option value="ultrasound" {{ old('type') == 'ultrasound' ? 'selected' : '' }}>Ultrasound</option>
+                                                <option value="audiology" {{ old('type') == 'audiology' ? 'selected' : '' }}>Audiology</option>
                                                 <option value="dental" {{ old('type') == 'dental' ? 'selected' : '' }}>Dental</option>
                                                 <option value="pharmacy" {{ old('type') == 'pharmacy' ? 'selected' : '' }}>Pharmacy</option>
                                                 <option value="rch" {{ old('type') == 'rch' ? 'selected' : '' }}>RCH</option>

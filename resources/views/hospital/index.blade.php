@@ -159,6 +159,23 @@
                                     </div>
                                 </div>
 
+                                <!-- Audiology -->
+                                <div class="col-md-6 col-lg-4 mb-4">
+                                    <div class="card module-card h-100">
+                                        <div class="count-badge bg-dark">{{ number_format($stats['visits']['audiology_pending'] ?? 0) }}</div>
+                                        <div class="card-body text-center">
+                                            <div class="mb-3">
+                                                <i class="bx bx-volume-full text-dark" style="font-size: 3rem;"></i>
+                                            </div>
+                                            <h5 class="card-title">Audiology</h5>
+                                            <p class="card-text">Hearing assessments, audiology procedures, and results management.</p>
+                                            <a href="{{ route('hospital.audiology.index') }}" class="btn btn-dark">
+                                                <i class="bx bx-volume-full me-1"></i>Go to Audiology
+                                            </a>
+                                        </div>
+                                    </div>
+                                </div>
+
                                 <!-- Pharmacy -->
                                 <div class="col-md-6 col-lg-4 mb-4">
                                     <div class="card module-card h-100">

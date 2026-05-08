@@ -88,6 +88,11 @@ class Visit extends Model
         return $this->hasMany(UltrasoundResult::class);
     }
 
+    public function audiologyResults()
+    {
+        return $this->hasMany(AudiologyResult::class);
+    }
+
     public function pharmacyDispensations()
     {
         return $this->hasMany(PharmacyDispensation::class);

@@ -75,6 +75,7 @@
                                                 <option value="doctor" {{ old('type', $department->type) == 'doctor' ? 'selected' : '' }}>Doctor</option>
                                                 <option value="lab" {{ old('type', $department->type) == 'lab' ? 'selected' : '' }}>Lab</option>
                                                 <option value="ultrasound" {{ old('type', $department->type) == 'ultrasound' ? 'selected' : '' }}>Ultrasound</option>
+                                                <option value="audiology" {{ old('type', $department->type) == 'audiology' ? 'selected' : '' }}>Audiology</option>
                                                 <option value="dental" {{ old('type', $department->type) == 'dental' ? 'selected' : '' }}>Dental</option>
                                                 <option value="pharmacy" {{ old('type', $department->type) == 'pharmacy' ? 'selected' : '' }}>Pharmacy</option>
                                                 <option value="rch" {{ old('type', $department->type) == 'rch' ? 'selected' : '' }}>RCH</option>

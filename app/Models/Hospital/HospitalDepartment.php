@@ -33,6 +33,7 @@ class HospitalDepartment extends Model
     const TYPE_DOCTOR = 'doctor';
     const TYPE_LAB = 'lab';
     const TYPE_ULTRASOUND = 'ultrasound';
+    const TYPE_AUDIOLOGY = 'audiology';
     const TYPE_DENTAL = 'dental';
     const TYPE_PHARMACY = 'pharmacy';
     const TYPE_RCH = 'rch';

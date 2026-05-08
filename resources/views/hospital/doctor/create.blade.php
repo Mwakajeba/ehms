@@ -319,6 +319,61 @@
                 </div>
                 @endif
 
+                @php
+                    $readyAudiologyResults = $visit->audiologyResults ? $visit->audiologyResults->where('result_status', 'ready') : collect();
+                @endphp
+                @if($readyAudiologyResults && $readyAudiologyResults->count() > 0)
+                <!-- Audiology Results Card -->
+                <div class="col-12 mb-4">
+                    <div class="card">
+                        <div class="card-header bg-dark text-white">
+                            <h5 class="mb-0 text-white"><i class="bx bx-volume-full me-2 text-white"></i>Audiology Results</h5>
+                        </div>
+                        <div class="card-body">
+                            <div class="table-responsive">
+                                <table class="table table-hover">
+                                    <thead>
+                                        <tr>
+                                            <th>Result #</th>
+                                            <th>Test Type</th>
+                                            <th>Service</th>
+                                            <th>Findings</th>
+                                            <th>Impression</th>
+                                            <th>Recommendation</th>
+                                            <th>Performed By</th>
+                                            <th>Completed At</th>
+                                            <th>Actions</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        @foreach($readyAudiologyResults as $result)
+                                            <tr>
+                                                <td><strong>{{ $result->result_number }}</strong></td>
+                                                <td>{{ $result->test_type ?? 'N/A' }}</td>
+                                                <td>{{ $result->service->name ?? 'N/A' }}</td>
+                                                <td><small class="text-muted">{{ $result->findings ? (strlen($result->findings) > 50 ? substr($result->findings, 0, 50) . '...' : $result->findings) : 'N/A' }}</small></td>
+                                                <td><small class="text-muted">{{ $result->impression ? (strlen($result->impression) > 50 ? substr($result->impression, 0, 50) . '...' : $result->impression) : 'N/A' }}</small></td>
+                                                <td><small class="text-muted">{{ $result->recommendation ? (strlen($result->recommendation) > 50 ? substr($result->recommendation, 0, 50) . '...' : $result->recommendation) : 'N/A' }}</small></td>
+                                                <td>{{ $result->performedBy->name ?? 'N/A' }}</td>
+                                                <td>{{ $result->completed_at ? $result->completed_at->format('d M Y, H:i') : 'N/A' }}</td>
+                                                <td>
+                                                    <a href="{{ route('hospital.audiology.show', $result->id) }}"
+                                                       class="btn btn-sm btn-outline-dark"
+                                                       target="_blank"
+                                                       title="View Full Result">
+                                                        <i class="bx bx-show"></i>
+                                                    </a>
+                                                </td>
+                                            </tr>
+                                        @endforeach
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                @endif
+
                 @if($visit->dentalRecords && $visit->dentalRecords->count() > 0)
                 <!-- Dental Results Card -->
                 <div class="col-12 mb-4">
@@ -732,6 +787,20 @@
                                     </div>
                                 </div>
 
+                                <!-- Audiology Card -->
+                                <div class="col-md-3 col-lg-3 mb-3">
+                                    <div class="card border-dark h-100">
+                                        <div class="card-body text-center">
+                                            <i class="bx bx-volume-full font-50 text-dark mb-3"></i>
+                                            <h5 class="card-title">Audiology</h5>
+                                            <p class="card-text text-muted">Create an audiology test bill and send patient to cashier for payment</p>
+                                            <a href="{{ route('hospital.doctor.create-audiology-bill', $visit->id) }}" class="btn btn-dark">
+                                                <i class="bx bx-plus me-1"></i>Create Bill
+                                            </a>
+                                        </div>
+                                    </div>
+                                </div>
+
                                 <!-- Diagnosis Explanation Card -->
                                 <div class="col-md-3 col-lg-3 mb-3">
                                     <div class="card border-info h-100">
@@ -778,7 +847,7 @@
                                 <div class="col-md-3 col-lg-3 mb-3">
                                     <div class="card border-danger h-100">
                                         <div class="card-body text-center">
-                                            <i class="bx bx-injection font-50 text-danger mb-3"></i>
+                                            <i class="bx bx-plus-medical font-50 text-danger mb-3"></i>
                                             <h5 class="card-title">Injection</h5>
                                             <p class="card-text text-muted">Create injection bill and send patient to cashier for payment</p>
                                             <a href="{{ route('hospital.doctor.create-injection-bill', $visit->id) }}" class="btn btn-danger">
