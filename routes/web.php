@@ -927,6 +927,17 @@ Route::prefix('hospital')->name('hospital.')->middleware(['auth', 'company.scope
         Route::post('/visits/{visitId}/start-service', [App\Http\Controllers\Hospital\TriageController::class, 'startService'])->name('start-service');
     });
     
+    // Audiology Routes
+    Route::prefix('audiology')->name('audiology.')->group(function () {
+        Route::get('/', [App\Http\Controllers\Hospital\AudiologyController::class, 'index'])->name('index');
+        Route::get('/visits/{visitId}/create', [App\Http\Controllers\Hospital\AudiologyController::class, 'create'])->name('create');
+        Route::post('/visits/{visitId}', [App\Http\Controllers\Hospital\AudiologyController::class, 'store'])->name('store');
+        Route::get('/results/{id}', [App\Http\Controllers\Hospital\AudiologyController::class, 'show'])->name('show');
+        Route::post('/visits/{visitId}/start-service', [App\Http\Controllers\Hospital\AudiologyController::class, 'startService'])->name('start-service');
+        Route::post('/results/{id}/mark-ready', [App\Http\Controllers\Hospital\AudiologyController::class, 'markReady'])->name('mark-ready');
+        Route::get('/results/{id}/print', [App\Http\Controllers\Hospital\AudiologyController::class, 'printResult'])->name('print');
+    });
+
     // Doctor Routes
     Route::prefix('doctor')->name('doctor.')->group(function () {
         Route::get('/', [App\Http\Controllers\Hospital\DoctorController::class, 'index'])->name('index');
@@ -934,6 +945,8 @@ Route::prefix('hospital')->name('hospital.')->middleware(['auth', 'company.scope
         Route::post('/visits/{visitId}/store-pre-bill', [App\Http\Controllers\Hospital\DoctorController::class, 'storePreBill'])->name('store-pre-bill');
         Route::get('/visits/{visitId}/create-lab-bill', [App\Http\Controllers\Hospital\DoctorController::class, 'createLabBill'])->name('create-lab-bill');
         Route::post('/visits/{visitId}/store-lab-bill', [App\Http\Controllers\Hospital\DoctorController::class, 'storeLabBill'])->name('store-lab-bill');
+        Route::get('/visits/{visitId}/create-audiology-bill', [App\Http\Controllers\Hospital\DoctorController::class, 'createAudiologyBill'])->name('create-audiology-bill');
+        Route::post('/visits/{visitId}/store-audiology-bill', [App\Http\Controllers\Hospital\DoctorController::class, 'storeAudiologyBill'])->name('store-audiology-bill');
         Route::get('/visits/{visitId}/create-diagnosis', [App\Http\Controllers\Hospital\DoctorController::class, 'createDiagnosis'])->name('create-diagnosis');
         Route::post('/visits/{visitId}/store-diagnosis', [App\Http\Controllers\Hospital\DoctorController::class, 'storeDiagnosis'])->name('store-diagnosis');
         Route::get('/visits/{visitId}/create-pharmacy-bill', [App\Http\Controllers\Hospital\DoctorController::class, 'createPharmacyBill'])->name('create-pharmacy-bill');

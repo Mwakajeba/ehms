@@ -96,7 +96,7 @@ class HospitalDepartmentController extends Controller
             ],
             'type' => [
                 'required',
-                'in:reception,cashier,triage,doctor,lab,ultrasound,dental,pharmacy,rch,family_planning,vaccine,injection,observation'
+                'in:reception,cashier,triage,doctor,lab,ultrasound,audiology,dental,pharmacy,rch,family_planning,vaccine,injection,observation'
             ],
             'description' => 'nullable|string',
             'is_active' => 'boolean',
@@ -189,7 +189,7 @@ class HospitalDepartmentController extends Controller
             ],
             'type' => [
                 'required',
-                'in:reception,cashier,triage,doctor,lab,ultrasound,dental,pharmacy,rch,family_planning,vaccine,injection,observation'
+                'in:reception,cashier,triage,doctor,lab,ultrasound,audiology,dental,pharmacy,rch,family_planning,vaccine,injection,observation'
             ],
             'description' => 'nullable|string',
             'is_active' => 'boolean',

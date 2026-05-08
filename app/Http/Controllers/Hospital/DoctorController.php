@@ -89,7 +89,7 @@ class DoctorController extends Controller
      */
     public function create($visitId)
     {
-        $visit = Visit::with(['patient', 'visitDepartments.department', 'triageVitals', 'bills', 'labResults.service', 'labResults.performedBy', 'ultrasoundResults.service', 'ultrasoundResults.performedBy', 'dentalRecords.service', 'dentalRecords.performedBy', 'vaccinationRecords.item', 'vaccinationRecords.performedBy', 'injectionRecords.item', 'injectionRecords.performedBy', 'diagnosisExplanation', 'pharmacyDispensations.items.product', 'pharmacyDispensations.dispensedBy'])
+        $visit = Visit::with(['patient', 'visitDepartments.department', 'triageVitals', 'bills', 'labResults.service', 'labResults.performedBy', 'ultrasoundResults.service', 'ultrasoundResults.performedBy', 'audiologyResults.service', 'audiologyResults.performedBy', 'dentalRecords.service', 'dentalRecords.performedBy', 'vaccinationRecords.item', 'vaccinationRecords.performedBy', 'injectionRecords.item', 'injectionRecords.performedBy', 'diagnosisExplanation', 'pharmacyDispensations.items.product', 'pharmacyDispensations.dispensedBy'])
             ->findOrFail($visitId);
 
         // Verify access
@@ -212,6 +212,207 @@ class DoctorController extends Controller
             ->get();
 
         return view('hospital.doctor.create-lab-bill', compact('visit', 'services', 'departments'));
+    }
+
+    /**
+     * Show form to create audiology test bill
+     */
+    public function createAudiologyBill($visitId)
+    {
+        $visit = Visit::with(['patient', 'visitDepartments.department', 'triageVitals', 'bills'])
+            ->findOrFail($visitId);
+
+        // Verify access
+        if ($visit->company_id !== Auth::user()->company_id) {
+            abort(403, 'Unauthorized access to visit.');
+        }
+
+        // Check if bill is cleared (VisitBill) OR has paid SalesInvoice (pre-billing)
+        $hasClearedBill = $visit->bills()->where('clearance_status', 'cleared')->exists();
+
+        $patient = $visit->patient;
+        $hasPaidInvoice = false;
+        if ($patient) {
+            $customer = Customer::where('company_id', $patient->company_id)
+                ->where(function ($q) use ($patient) {
+                    if ($patient->phone) {
+                        $q->where('phone', $patient->phone);
+                    }
+                    if ($patient->email) {
+                        $q->orWhere('email', $patient->email);
+                    }
+                    $q->orWhere('name', $patient->full_name);
+                })
+                ->first();
+
+            if ($customer) {
+                $hasPaidInvoice = SalesInvoice::where('customer_id', $customer->id)
+                    ->where('company_id', $patient->company_id)
+                    ->where('branch_id', $patient->branch_id)
+                    ->where('status', 'paid')
+                    ->exists();
+            }
+        }
+
+        if (!$hasClearedBill && !$hasPaidInvoice) {
+            return redirect()->route('hospital.doctor.index')
+                ->withErrors(['error' => 'Patient bill must be cleared or paid before creating audiology test bill.']);
+        }
+
+        // Get all services from inventory_items (item_type = 'service')
+        $services = Item::where('company_id', Auth::user()->company_id)
+            ->where('item_type', 'service')
+            ->where('is_active', true)
+            ->orderBy('name')
+            ->get();
+
+        return view('hospital.doctor.create-audiology-bill', compact('visit', 'services'));
+    }
+
+    /**
+     * Store audiology test bill and route to cashier and audiology
+     */
+    public function storeAudiologyBill(Request $request, $visitId)
+    {
+        $visit = Visit::with(['patient', 'visitDepartments'])->findOrFail($visitId);
+
+        // Verify access
+        if ($visit->company_id !== Auth::user()->company_id) {
+            abort(403, 'Unauthorized access to visit.');
+        }
+
+        $validated = $request->validate([
+            'items' => 'required|array|min:1',
+            'items.*.inventory_item_id' => 'nullable|exists:inventory_items,id',
+            'items.*.quantity' => 'nullable|numeric|min:0.01',
+            'items.*.unit_price' => 'nullable|numeric|min:0',
+        ]);
+
+        $selectedItems = collect($validated['items'])
+            ->filter(fn ($row) => !empty($row['inventory_item_id']))
+            ->values()
+            ->all();
+
+        if (empty($selectedItems)) {
+            return back()->withInput()->withErrors(['error' => 'Please select at least one audiology service.']);
+        }
+
+        try {
+            DB::beginTransaction();
+
+            $user = Auth::user();
+            $companyId = $user->company_id;
+            $branchId = session('branch_id') ?? $user->branch_id;
+
+            // Get or create customer from patient
+            $customer = $this->getOrCreateCustomerFromPatient($visit->patient);
+
+            // Create sales invoice for audiology test bill
+            $invoice = SalesInvoice::create([
+                'customer_id' => $customer->id,
+                'invoice_date' => now(),
+                'due_date' => now(), // Due immediately
+                'status' => 'draft',
+                'currency' => 'TZS',
+                'exchange_rate' => 1.000000,
+                'branch_id' => $branchId,
+                'company_id' => $companyId,
+                'created_by' => $user->id,
+                'notes' => "Audiology test bill for Visit #{$visit->visit_number} - Patient: {$visit->patient->full_name}",
+            ]);
+
+            foreach ($selectedItems as $itemData) {
+                if (empty($itemData['inventory_item_id'])) {
+                    continue;
+                }
+
+                $service = Item::find($itemData['inventory_item_id']);
+                if (!$service || $service->item_type !== 'service') {
+                    continue;
+                }
+
+                $quantity = $itemData['quantity'] ?? 1;
+                $unitPrice = $itemData['unit_price'] ?? $service->unit_price;
+                $lineTotal = $quantity * $unitPrice;
+
+                SalesInvoiceItem::create([
+                    'sales_invoice_id' => $invoice->id,
+                    'inventory_item_id' => $service->id,
+                    'item_name' => $service->name,
+                    'item_code' => $service->code,
+                    'description' => $service->description,
+                    'unit_of_measure' => $service->unit_of_measure ?? 'Unit',
+                    'quantity' => $quantity,
+                    'unit_price' => $unitPrice,
+                    'line_total' => $lineTotal,
+                    'vat_type' => 'no_vat',
+                    'vat_rate' => 0,
+                    'vat_amount' => 0,
+                    'discount_type' => null,
+                    'discount_rate' => 0,
+                    'discount_amount' => 0,
+                ]);
+            }
+
+            $invoice->updateTotals();
+            $invoice->createDoubleEntryTransactions();
+
+            // Route to cashier for payment
+            $cashierDept = HospitalDepartment::where('company_id', $companyId)
+                ->where('type', 'cashier')
+                ->first();
+
+            if ($cashierDept) {
+                $existingCashierDept = $visit->visitDepartments()
+                    ->where('department_id', $cashierDept->id)
+                    ->first();
+
+                if (!$existingCashierDept) {
+                    $maxSequence = $visit->visitDepartments()->max('sequence') ?? 0;
+                    VisitDepartment::create([
+                        'visit_id' => $visit->id,
+                        'department_id' => $cashierDept->id,
+                        'status' => 'waiting',
+                        'waiting_started_at' => now(),
+                        'sequence' => $maxSequence + 1,
+                    ]);
+                } else {
+                    $existingCashierDept->status = 'waiting';
+                    $existingCashierDept->waiting_started_at = now();
+                    $existingCashierDept->save();
+                }
+            }
+
+            // Route to audiology (after payment, audiology will see it)
+            $audiologyDept = HospitalDepartment::where('company_id', $companyId)
+                ->where('type', 'audiology')
+                ->first();
+
+            if ($audiologyDept) {
+                $existingAudiologyDept = $visit->visitDepartments()
+                    ->where('department_id', $audiologyDept->id)
+                    ->first();
+
+                if (!$existingAudiologyDept) {
+                    $maxSequence = $visit->visitDepartments()->max('sequence') ?? 0;
+                    VisitDepartment::create([
+                        'visit_id' => $visit->id,
+                        'department_id' => $audiologyDept->id,
+                        'status' => 'waiting',
+                        'waiting_started_at' => null, // Will be set after payment
+                        'sequence' => $maxSequence + 1,
+                    ]);
+                }
+            }
+
+            DB::commit();
+
+            return redirect()->route('sales.invoices.show', $invoice->encoded_id)
+                ->with('success', 'Audiology test bill created successfully. Patient has been sent to cashier for payment.');
+        } catch (\Exception $e) {
+            DB::rollBack();
+            return back()->withInput()->withErrors(['error' => 'Failed to create audiology test bill: ' . $e->getMessage()]);
+        }
     }
 
     /**
