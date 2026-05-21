@@ -43,6 +43,7 @@
                                         <th>Code</th>
                                         <th>Sort</th>
                                         <th>Type</th>
+                                        <th>Receivable Account</th>
                                         <th>Patients</th>
                                         <th>Status</th>
                                         <th>Actions</th>
@@ -77,6 +78,7 @@ $(document).ready(function() {
             { data: 'code', name: 'code', defaultContent: '—' },
             { data: 'sort_order', name: 'sort_order' },
             { data: 'none_flag', name: 'is_none', orderable: false, searchable: false },
+            { data: 'receivable_account', name: 'receivable_chart_account_id', orderable: false, searchable: false },
             { data: 'patients_count_display', name: 'patients_count', searchable: false },
             { data: 'status', name: 'is_active', orderable: false, searchable: false },
             { data: 'action', name: 'action', orderable: false, searchable: false },

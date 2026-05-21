@@ -2,6 +2,7 @@
 
 namespace App\Models\Hospital;
 
+use App\Models\ChartAccount;
 use App\Models\Company;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -16,6 +17,7 @@ class HospitalInsuranceType extends Model
         'is_none',
         'is_active',
         'sort_order',
+        'receivable_chart_account_id',
     ];
 
     protected $casts = [
@@ -32,6 +34,11 @@ class HospitalInsuranceType extends Model
     public function patients(): HasMany
     {
         return $this->hasMany(Patient::class, 'insurance_type_id');
+    }
+
+    public function receivableChartAccount(): BelongsTo
+    {
+        return $this->belongsTo(ChartAccount::class, 'receivable_chart_account_id');
     }
 
     public function scopeForCompany($query, int $companyId)

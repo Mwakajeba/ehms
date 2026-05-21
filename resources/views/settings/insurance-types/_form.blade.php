@@ -32,6 +32,23 @@
             </div>
         </div>
     </div>
+    <div class="col-md-12" id="receivable-account-wrap">
+        <div class="mb-3">
+            <label for="receivable_chart_account_id" class="form-label">Receivable Chart Account <span class="text-danger receivable-required">*</span></label>
+            <select class="form-select select2-single @error('receivable_chart_account_id') is-invalid @enderror"
+                    id="receivable_chart_account_id" name="receivable_chart_account_id">
+                <option value="">Select receivable account</option>
+                @foreach($chartAccounts ?? [] as $account)
+                    <option value="{{ $account->id }}"
+                        {{ (string) old('receivable_chart_account_id', $insuranceType->receivable_chart_account_id ?? '') === (string) $account->id ? 'selected' : '' }}>
+                        {{ $account->account_code }} - {{ $account->account_name }}
+                    </option>
+                @endforeach
+            </select>
+            @error('receivable_chart_account_id')<div class="invalid-feedback">{{ $message }}</div>@enderror
+            <div class="form-text">Used when recording invoice payments by this insurance provider (debit this receivable).</div>
+        </div>
+    </div>
     <div class="col-md-4">
         <div class="mb-3 pt-4">
             <div class="form-check">

@@ -1676,6 +1676,13 @@ class SalesInvoiceController extends Controller
                     throw new \InvalidArgumentException('Patient must have a valid insurance provider selected.');
                 }
 
+                if (!$invoice->resolveInsuranceReceivableAccountId($insuranceType)) {
+                    DB::rollBack();
+                    return redirect()->back()
+                        ->with('error', "Insurance type \"{$insuranceType->name}\" has no receivable chart account. Configure it under Settings → Insurance Types.")
+                        ->withInput();
+                }
+
                 if ($patient->insurance_type_id && (int) $patient->insurance_type_id !== (int) $insuranceType->id) {
                     throw new \InvalidArgumentException('Selected insurance does not match the insurance registered for this patient.');
                 }

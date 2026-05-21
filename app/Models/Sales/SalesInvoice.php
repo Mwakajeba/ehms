@@ -1120,6 +1120,13 @@ class SalesInvoice extends Model
             throw new \InvalidArgumentException('Cannot record insurance payment using a "No insurance" type.');
         }
 
+        $insuranceReceivableId = $this->resolveInsuranceReceivableAccountId($insuranceType);
+        if (!$insuranceReceivableId) {
+            throw new \RuntimeException(
+                "Insurance type \"{$insuranceType->name}\" has no receivable chart account. Set it under Settings → Insurance Types."
+            );
+        }
+
         $description = $description ?: "Insurance payment for Invoice #{$this->invoice_number} via {$insuranceType->name}";
 
         $functionalCurrency = \App\Models\SystemSetting::getValue('functional_currency', $this->company->functional_currency ?? 'TZS');
@@ -1192,7 +1199,7 @@ class SalesInvoice extends Model
             'user_id' => $userId,
         ]);
 
-        $this->createInsurancePaymentGlTransactions($receipt, $insurancePayment, $amountLCY, $paymentDate, $description);
+        $this->createInsurancePaymentGlTransactions($receipt, $insurancePayment, $amountLCY, $paymentDate, $description, $insuranceReceivableId);
 
         $this->createEarlyPaymentDiscountTransactions($amount, $paymentDate);
 
@@ -1208,10 +1215,16 @@ class SalesInvoice extends Model
     /**
      * GL: Debit insurance receivable, credit trade receivable.
      */
-    protected function createInsurancePaymentGlTransactions($receipt, $insurancePayment, float $amountLCY, $paymentDate, string $description): void
+    protected function createInsurancePaymentGlTransactions($receipt, $insurancePayment, float $amountLCY, $paymentDate, string $description, ?int $insuranceReceivableId = null): void
     {
         $userId = auth()->id() ?? ($this->created_by ?? 1);
-        $insuranceReceivableId = $this->getInsuranceReceivableAccountId();
+        if (!$insuranceReceivableId) {
+            $insurancePayment->loadMissing('insuranceType');
+            $insuranceReceivableId = $this->resolveInsuranceReceivableAccountId($insurancePayment->insuranceType);
+        }
+        if (!$insuranceReceivableId) {
+            throw new \RuntimeException('Insurance receivable account is not configured for this insurance type.');
+        }
         $tradeReceivableId = $this->getReceivableAccountId() ?? 18;
 
         $transactions = [
@@ -1246,7 +1259,32 @@ class SalesInvoice extends Model
         }
     }
 
+    /**
+     * Receivable account for an insurance type (per-type setting, then global fallback).
+     */
+    public function resolveInsuranceReceivableAccountId(?\App\Models\Hospital\HospitalInsuranceType $insuranceType = null): ?int
+    {
+        if ($insuranceType?->receivable_chart_account_id) {
+            return (int) $insuranceType->receivable_chart_account_id;
+        }
+
+        return $this->getGlobalInsuranceReceivableAccountId();
+    }
+
+    /**
+     * @deprecated Use resolveInsuranceReceivableAccountId() with the insurance type.
+     */
     public function getInsuranceReceivableAccountId(): int
+    {
+        $id = $this->getGlobalInsuranceReceivableAccountId();
+        if ($id) {
+            return $id;
+        }
+
+        throw new \RuntimeException('Insurance receivable account is not configured. Set it on the insurance type, or set insurance_receivable_account_id in system settings.');
+    }
+
+    protected function getGlobalInsuranceReceivableAccountId(): ?int
     {
         $settingValue = \App\Models\SystemSetting::where('key', 'insurance_receivable_account_id')->value('value');
         if ($settingValue) {
@@ -1257,11 +1295,7 @@ class SalesInvoice extends Model
             ->orWhere('account_name', 'like', '%Insurance Receivable%')
             ->first();
 
-        if ($account) {
-            return (int) $account->id;
-        }
-
-        throw new \RuntimeException('Insurance receivable account is not configured. Set insurance_receivable_account_id in system settings or create an Insurance Receivable chart account.');
+        return $account ? (int) $account->id : null;
     }
 
     /**
