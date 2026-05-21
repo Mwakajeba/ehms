@@ -64,7 +64,7 @@ class JournalEntryApprovalRequired extends Notification implements ShouldQueue
     public function toSms(object $notifiable): string
     {
         $amount = number_format($this->journal->total, 2);
-        $senderName = config('services.sms.senderid', 'SAFCO');
+        $senderName = config('services.sms.senderid');
         
         return "Hello {$notifiable->name}, Journal Entry {$this->journal->reference} (TZS {$amount}) requires your approval at Level {$this->approvalLevel}. Please review and take action. - {$senderName}";
     }

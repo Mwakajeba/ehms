@@ -889,7 +889,7 @@ class ApprovalService
                 : $this->formatPhoneNumber($phone);
             
             // Build SMS message
-            $senderName = config('services.sms.senderid', 'SAFCO');
+            $senderName = config('services.sms.senderid');
             $date = $model->reconciliation_date ? $model->reconciliation_date->format('M d, Y') : 'N/A';
             $message = "Hello {$approver->name}, Bank reconciliation for {$model->bankAccount->name} ({$date}) requires your approval at {$level->level_name} level. Please review and take action. - {$senderName}";
             

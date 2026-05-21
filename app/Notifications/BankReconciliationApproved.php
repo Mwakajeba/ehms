@@ -71,7 +71,7 @@ class BankReconciliationApproved extends Notification implements ShouldQueue
      */
     public function toSms(object $notifiable): string
     {
-        $senderName = config('services.sms.senderid', 'SAFCO');
+        $senderName = config('services.sms.senderid');
         
         if ($this->isFinalApproval) {
             return "Hello {$notifiable->name}, Bank reconciliation for {$this->bankReconciliation->bankAccount->name} has been fully approved and is ready for completion. - {$senderName}";

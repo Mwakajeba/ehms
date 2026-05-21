@@ -1571,19 +1571,12 @@ class SettingsController extends Controller
         ]);
 
         try {
-            // Update .env file with SMS settings
             $envKeys = [
-                'BEEM_SMS_URL' => $request->sms_url,
-                'BEEM_SENDER_ID' => $request->sms_senderid,
-                'BEEM_API_KEY' => $request->sms_key,
-                'BEEM_SECRET_KEY' => $request->sms_token,
+                'SMS_URL' => $request->sms_url,
+                'SMS_SENDERID' => $request->sms_senderid,
+                'SMS_API_KEY' => $request->sms_key,
+                'SMS_API_SECRET' => $request->sms_token,
             ];
-
-            // Also set fallback SMS_* keys
-            $envKeys['SMS_URL'] = $request->sms_url;
-            $envKeys['SMS_SENDERID'] = $request->sms_senderid;
-            $envKeys['SMS_KEY'] = $request->sms_key;
-            $envKeys['SMS_TOKEN'] = $request->sms_token;
 
             foreach ($envKeys as $key => $value) {
                 if (!update_env_file($key, $value)) {
@@ -1599,8 +1592,8 @@ class SettingsController extends Controller
                 // Temporarily update config to use new values for testing
                 config([
                     'services.sms.senderid' => $request->sms_senderid,
-                    'services.sms.token' => $request->sms_token,
-                    'services.sms.key' => $request->sms_key,
+                    'services.sms.api_key' => $request->sms_key,
+                    'services.sms.api_secret' => $request->sms_token,
                     'services.sms.url' => $request->sms_url,
                 ]);
 
@@ -1649,8 +1642,8 @@ class SettingsController extends Controller
                 // Temporarily update config to use form values
                 config([
                     'services.sms.senderid' => $request->sms_senderid,
-                    'services.sms.token' => $request->sms_token,
-                    'services.sms.key' => $request->sms_key,
+                    'services.sms.api_key' => $request->sms_key,
+                    'services.sms.api_secret' => $request->sms_token,
                     'services.sms.url' => $request->sms_url,
                 ]);
             }

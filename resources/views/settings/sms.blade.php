@@ -18,7 +18,7 @@
                 <div class="card">
                     <div class="card-body">
                         @role('super-admin')
-                        <h4 class="card-title mb-4">SMS Configuration</h4>
+                        <h4 class="card-title mb-4">Kilakona SMS Configuration</h4>
 
                         @if(session('success'))
                         <div class="alert alert-success alert-dismissible fade show" role="alert">
@@ -58,36 +58,36 @@
                                 <div class="col-md-12 mb-3">
                                     <label for="sms_url" class="form-label">SMS API URL</label>
                                     <input type="url" class="form-control" id="sms_url" name="sms_url" 
-                                        value="{{ old('sms_url', env('BEEM_SMS_URL', env('SMS_URL', 'https://apisms.beem.africa/v1/send'))) }}" 
-                                        placeholder="https://apisms.beem.africa/v1/send" required>
-                                    <small class="form-text text-muted">The API endpoint URL for sending SMS messages.</small>
+                                        value="{{ old('sms_url', env('SMS_URL', 'https://messaging.kilakona.co.tz/api/v1/vendor/message/send')) }}" 
+                                        placeholder="https://messaging.kilakona.co.tz/api/v1/vendor/message/send" required>
+                                    <small class="form-text text-muted">Kilakona API endpoint URL.</small>
                                 </div>
 
                                 <!-- Sender ID -->
                                 <div class="col-md-6 mb-3">
                                     <label for="sms_senderid" class="form-label">Sender ID</label>
                                     <input type="text" class="form-control" id="sms_senderid" name="sms_senderid" 
-                                        value="{{ old('sms_senderid', env('BEEM_SENDER_ID', env('SMS_SENDERID', ''))) }}" 
+                                        value="{{ old('sms_senderid', env('SMS_SENDERID', '')) }}" 
                                         placeholder="YourSenderID" required>
-                                    <small class="form-text text-muted">The sender ID that will appear on SMS messages.</small>
+                                    <small class="form-text text-muted">Must match a Sender ID approved on your Kilakona account (exact spelling). Wrong IDs return “Sender id does not exists to your account.”</small>
                                 </div>
 
                                 <!-- API Key -->
                                 <div class="col-md-6 mb-3">
                                     <label for="sms_key" class="form-label">API Key</label>
                                     <input type="text" class="form-control" id="sms_key" name="sms_key" 
-                                        value="{{ old('sms_key', env('BEEM_API_KEY', env('SMS_KEY', ''))) }}" 
+                                        value="{{ old('sms_key', env('SMS_API_KEY', '')) }}" 
                                         placeholder="Your API Key" required>
-                                    <small class="form-text text-muted">Your SMS provider API key.</small>
+                                    <small class="form-text text-muted">Your Kilakona API key (api_key header).</small>
                                 </div>
 
                                 <!-- Secret Key / Token -->
                                 <div class="col-md-6 mb-3">
-                                    <label for="sms_token" class="form-label">Secret Key / Token</label>
+                                    <label for="sms_token" class="form-label">API Secret</label>
                                     <input type="password" class="form-control" id="sms_token" name="sms_token" 
-                                        value="{{ old('sms_token', env('BEEM_SECRET_KEY', env('SMS_TOKEN', ''))) }}" 
-                                        placeholder="Your Secret Key" required>
-                                    <small class="form-text text-muted">Your SMS provider secret key or token.</small>
+                                        value="{{ old('sms_token', env('SMS_API_SECRET', '')) }}" 
+                                        placeholder="Your Kilakona API secret" required>
+                                    <small class="form-text text-muted">Your Kilakona API secret (api_secret header).</small>
                                     <div class="form-check mt-2">
                                         <input class="form-check-input" type="checkbox" id="show_token" onchange="toggleTokenVisibility()">
                                         <label class="form-check-label" for="show_token">

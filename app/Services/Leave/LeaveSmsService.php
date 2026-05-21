@@ -5,24 +5,11 @@ namespace App\Services\Leave;
 use App\Models\Hr\Employee;
 use App\Models\Hr\LeaveRequest;
 use App\Models\Hr\LeaveSmsLog;
-use Illuminate\Support\Facades\Http;
+use App\Helpers\SmsHelper;
 use Illuminate\Support\Facades\Log;
 
 class LeaveSmsService
 {
-    protected string $apiUrl;
-    protected string $apiKey;
-    protected string $secretKey;
-    protected string $senderId;
-
-    public function __construct()
-    {
-        $this->apiUrl = config('services.sms.url', 'https://apisms.beem.africa/v1/send');
-        $this->apiKey = config('services.sms.key', config('services.beem.api_key', ''));
-        $this->secretKey = config('services.sms.token', config('services.beem.secret_key', ''));
-        $this->senderId = config('services.sms.senderid', config('services.beem.sender_id', 'SAFCO'));
-    }
-
     /**
      * Send SMS notification when leave is requested
      */
@@ -228,14 +215,12 @@ class LeaveSmsService
     }
 
     /**
-     * Send SMS using Beem Africa API (Tanzania)
+     * Send SMS via Kilakona (SmsHelper)
      */
     protected function sendSms(LeaveRequest $leaveRequest, Employee $recipient, string $message, string $type): void
     {
-        // Normalize phone number for Tanzania
         $phoneNumber = $this->normalizePhoneNumber($recipient->mobile);
 
-        // Create SMS log
         $smsLog = LeaveSmsLog::create([
             'leave_request_id' => $leaveRequest->id,
             'recipient_id' => $recipient->id,
@@ -246,25 +231,10 @@ class LeaveSmsService
         ]);
 
         try {
-            // Send via Beem Africa API
-            $response = Http::withHeaders([
-                'Authorization' => 'Basic ' . base64_encode($this->apiKey . ':' . $this->secretKey),
-                'Content-Type' => 'application/json',
-            ])->post($this->apiUrl, [
-                'source_addr' => $this->senderId,
-                'encoding' => 0,
-                'schedule_time' => '',
-                'message' => $message,
-                'recipients' => [
-                    [
-                        'recipient_id' => (string) $recipient->id,
-                        'dest_addr' => $phoneNumber,
-                    ],
-                ],
-            ]);
+            $result = SmsHelper::send($phoneNumber, $message);
 
-            if ($response->successful()) {
-                $smsLog->markSent($response->json());
+            if ($result['success'] ?? false) {
+                $smsLog->markSent($result['response'] ?? []);
 
                 Log::info('Leave SMS sent successfully', [
                     'leave_request_id' => $leaveRequest->id,
@@ -272,14 +242,14 @@ class LeaveSmsService
                     'type' => $type,
                 ]);
             } else {
-                $errorMessage = $response->json()['message'] ?? 'Unknown error';
+                $errorMessage = $result['error'] ?? 'Unknown error';
                 $smsLog->markFailed($errorMessage);
 
                 Log::error('Leave SMS failed', [
                     'leave_request_id' => $leaveRequest->id,
                     'recipient_id' => $recipient->id,
                     'error' => $errorMessage,
-                    'response' => $response->json(),
+                    'response' => $result['response'] ?? null,
                 ]);
             }
         } catch (\Exception $e) {

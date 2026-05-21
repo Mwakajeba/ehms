@@ -225,7 +225,7 @@ class ApprovalReminderJob implements ShouldQueue
             }
 
             $identifier = $model->pr_no ?? $model->order_number ?? 'N/A';
-            $senderName = config('services.sms.senderid', 'SAFCO');
+            $senderName = config('services.sms.senderid');
             $message = "Hello {$approver->name}, {$type} {$identifier} requires your approval at {$levelName} level. Pending for more than " . $this->slaThresholdHours . " hours. Please review. - {$senderName}";
 
             if (class_exists(\App\Helpers\SmsHelper::class)) {

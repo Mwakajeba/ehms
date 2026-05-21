@@ -1139,65 +1139,24 @@ class CustomerController extends Controller
     }
 
     /**
-     * Send welcome SMS to customer using Beem API
+     * Send welcome SMS to customer via Kilakona
      */
     private function sendWelcomeSMS($customer)
     {
-        $apiKey = config('services.beem.api_key');
-        $secretKey = config('services.beem.secret_key');
-        $senderId = config('services.beem.sender_id', 'SAFCO');
-
-        if (!$apiKey || !$secretKey) {
-            throw new \Exception('Beem SMS configuration not found');
+        if (!\App\Helpers\SmsHelper::isConfigured()) {
+            throw new \Exception('Kilakona SMS is not configured');
         }
 
-        // Format the phone number
         $formattedPhone = $this->formatPhoneNumber($customer->phone);
-        
+
         \Log::info('Sending SMS to formatted number: ' . $formattedPhone . ' (original: ' . $customer->phone . ')');
 
         $message = "Karibu {$customer->name}! Umesajiliwa kwenye mfumo wetu. Nambari yako ya mteja ni: {$customer->customerNo}. Asante!";
-        
-        $url = 'https://apisms.beem.africa/v1/send';
-        
-        $data = [
-            'source_addr' => $senderId,
-            'schedule_time' => '',
-            'encoding' => 0,
-            'message' => $message,
-            'recipients' => [
-                [
-                    'recipient_id' => 1,
-                    'dest_addr' => $formattedPhone
-                ]
-            ]
-        ];
 
-        $headers = [
-            'Content-Type: application/json',
-            'Authorization: Basic ' . base64_encode($apiKey . ':' . $secretKey)
-        ];
+        $result = \App\Helpers\SmsHelper::send($formattedPhone, $message);
 
-        $ch = curl_init();
-        curl_setopt($ch, CURLOPT_URL, $url);
-        curl_setopt($ch, CURLOPT_POST, true);
-        curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($data));
-        curl_setopt($ch, CURLOPT_HTTPHEADER, $headers);
-        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
-
-        $response = curl_exec($ch);
-        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-        curl_close($ch);
-
-        if ($httpCode !== 200) {
-            throw new \Exception('SMS sending failed. HTTP Code: ' . $httpCode . ', Response: ' . $response);
-        }
-
-        $result = json_decode($response, true);
-        
-        if (isset($result['successful']) && $result['successful'] === false) {
-            throw new \Exception('SMS sending failed: ' . ($result['message'] ?? 'Unknown error'));
+        if (!($result['success'] ?? false)) {
+            throw new \Exception('SMS sending failed: ' . ($result['error'] ?? 'Unknown error'));
         }
 
         \Log::info('Welcome SMS sent successfully to customer: ' . $customer->name . ' (' . $formattedPhone . ')');

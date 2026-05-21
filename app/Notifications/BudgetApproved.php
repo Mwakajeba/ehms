@@ -71,7 +71,7 @@ class BudgetApproved extends Notification implements ShouldQueue
      */
     public function toSms(object $notifiable): string
     {
-        $senderName = config('services.sms.senderid', 'SAFCO');
+        $senderName = config('services.sms.senderid');
         
         if ($this->isFinalApproval) {
             return "Hello {$notifiable->name}, Budget '{$this->budget->name}' has been fully approved and is ready for activation. - {$senderName}";

@@ -870,6 +870,7 @@ Route::prefix('hospital/reception')->name('hospital.reception.')->middleware(['a
     Route::get('/', [App\Http\Controllers\Hospital\ReceptionController::class, 'index'])->name('index');
     
     // Patient routes
+    Route::get('/patients', [App\Http\Controllers\Hospital\ReceptionController::class, 'patientsIndex'])->name('patients.index');
     Route::get('/patients/create', [App\Http\Controllers\Hospital\ReceptionController::class, 'createPatient'])->name('patients.create');
     Route::post('/patients', [App\Http\Controllers\Hospital\ReceptionController::class, 'storePatient'])->name('patients.store');
     Route::get('/patients/{id}', [App\Http\Controllers\Hospital\ReceptionController::class, 'showPatient'])->name('patients.show');
@@ -1287,6 +1288,14 @@ Route::prefix('settings')->name('settings.')->middleware(['auth', 'company.scope
     Route::get('/sms', [SettingsController::class, 'smsSettings'])->name('sms');
     Route::put('/sms', [SettingsController::class, 'updateSmsSettings'])->name('sms.update');
     Route::post('/sms/test', [SettingsController::class, 'testSmsSettings'])->name('sms.test');
+
+    // Hospital insurance types (insurance agents / providers)
+    Route::get('/insurance-types', [App\Http\Controllers\Settings\HospitalInsuranceTypeController::class, 'index'])->name('insurance-types.index');
+    Route::get('/insurance-types/create', [App\Http\Controllers\Settings\HospitalInsuranceTypeController::class, 'create'])->name('insurance-types.create');
+    Route::post('/insurance-types', [App\Http\Controllers\Settings\HospitalInsuranceTypeController::class, 'store'])->name('insurance-types.store');
+    Route::get('/insurance-types/{insurance_type}/edit', [App\Http\Controllers\Settings\HospitalInsuranceTypeController::class, 'edit'])->name('insurance-types.edit');
+    Route::put('/insurance-types/{insurance_type}', [App\Http\Controllers\Settings\HospitalInsuranceTypeController::class, 'update'])->name('insurance-types.update');
+    Route::delete('/insurance-types/{insurance_type}', [App\Http\Controllers\Settings\HospitalInsuranceTypeController::class, 'destroy'])->name('insurance-types.destroy');
 
     // Backup Settings
     Route::get('/backup', [SettingsController::class, 'backupSettings'])->name('backup');
