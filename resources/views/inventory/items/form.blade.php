@@ -100,14 +100,22 @@
         @error('cost_price') <div class="invalid-feedback">{{ $message }}</div> @enderror
     </div>
 
-    <!-- Selling Price -->
+    <!-- Default Selling Price -->
     <div class="col-md-6 mb-3">
-        <label class="form-label">Selling Price <span class="text-danger">*</span></label>
+        <label class="form-label">Default Selling Price <span class="text-danger">*</span></label>
         <input type="number" step="0.01" name="unit_price" class="form-control @error('unit_price') is-invalid @enderror"
-            value="{{ old('unit_price', $item->unit_price ?? '') }}" placeholder="0.00" >
+            value="{{ old('unit_price', isset($item) ? $item->default_unit_price : '') }}" placeholder="0.00" >
         @error('unit_price') <div class="invalid-feedback">{{ $message }}</div> @enderror
+        <div class="form-text text-muted">Used when no branch-specific price is set.</div>
     </div>
 </div>
+
+@if(isset($branches))
+    @include('inventory.items._branch_prices', [
+        'branches' => $branches,
+        'branchPriceValues' => $branchPriceValues ?? [],
+    ])
+@endif
 
 <!-- Stock Management -->
 <div class="row field-product">

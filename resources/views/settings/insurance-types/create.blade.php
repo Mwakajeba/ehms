@@ -35,3 +35,21 @@
     </div>
 </div>
 @endsection
+
+@push('scripts')
+<script>
+$(function() {
+    if ($.fn.select2) {
+        $('.select2-single').select2({ width: '100%', placeholder: 'Search chart accounts...' });
+    }
+    function toggleReceivableField() {
+        const isNone = $('#is_none').is(':checked');
+        $('#receivable-account-wrap').toggle(!isNone);
+        $('#receivable_chart_account_id').prop('required', !isNone);
+        $('.receivable-required').toggle(!isNone);
+    }
+    $('#is_none').on('change', toggleReceivableField);
+    toggleReceivableField();
+});
+</script>
+@endpush

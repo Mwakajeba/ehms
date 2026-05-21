@@ -535,6 +535,7 @@
                                         // Get both payments and receipts for this invoice (use eager-loaded relationships if available)
                                         $payments = $invoice->payments->loadMissing(['user', 'bankAccount', 'cashDeposit.type']);
                                         $receipts = $invoice->receipts->loadMissing(['user', 'bankAccount']);
+                                        $insurancePayments = $invoice->insurancePayments ?? collect();
 
                                         // Combine and sort by date
                                         $allPayments = collect();
@@ -559,6 +560,7 @@
 
                                         // Add receipts
                                         foreach($receipts as $receipt) {
+                                            $insurancePayment = $insurancePayments->firstWhere('receipt_id', $receipt->id);
                                             $allPayments->push([
                                                 'type' => 'receipt',
                                                 'data' => $receipt,
@@ -571,7 +573,8 @@
                                                 'bank_account' => $receipt->bankAccount,
                                                 'approved' => $receipt->approved,
                                                 'id' => $receipt->id,
-                                                'encoded_id' => $receipt->encoded_id
+                                                'encoded_id' => $receipt->encoded_id,
+                                                'insurance_payment' => $insurancePayment,
                                             ]);
                                         }
 
@@ -590,7 +593,11 @@
                                                     <span class="badge bg-info">Cash Deposit (Customer Balance)</span>
                                                 @endif
                                             @else
-                                                @if($payment['bank_account_id'])
+                                                @if(!empty($payment['insurance_payment']))
+                                                    <span class="badge bg-warning text-dark">
+                                                        Insurance: {{ $payment['insurance_payment']->insuranceType->name ?? 'N/A' }}
+                                                    </span>
+                                                @elseif($payment['bank_account_id'])
                                                     <span class="badge bg-primary">{{ $payment['bank_account']->name ?? 'Bank' }}</span>
                                                 @else
                                                     <span class="badge bg-success">Cash</span>
