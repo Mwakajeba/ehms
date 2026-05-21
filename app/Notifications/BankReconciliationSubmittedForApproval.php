@@ -65,7 +65,7 @@ class BankReconciliationSubmittedForApproval extends Notification implements Sho
      */
     public function toSms(object $notifiable): string
     {
-        $senderName = config('services.sms.senderid', 'SAFCO');
+        $senderName = config('services.sms.senderid');
         $date = $this->bankReconciliation->reconciliation_date ? $this->bankReconciliation->reconciliation_date->format('M d, Y') : 'N/A';
         
         return "Hello {$notifiable->name}, Bank reconciliation for {$this->bankReconciliation->bankAccount->name} ({$date}) has been submitted for approval. Please review and take action. - {$senderName}";

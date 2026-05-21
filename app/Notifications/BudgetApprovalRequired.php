@@ -64,7 +64,7 @@ class BudgetApprovalRequired extends Notification implements ShouldQueue
     public function toSms(object $notifiable): string
     {
         $amount = number_format($this->budget->total_amount, 2);
-        $senderName = config('services.sms.senderid', 'SAFCO');
+        $senderName = config('services.sms.senderid');
         
         return "Hello {$notifiable->name}, Budget '{$this->budget->name}' (TZS {$amount}) requires your approval at {$this->approvalLevel->level_name} level. Please review and take action. - {$senderName}";
     }

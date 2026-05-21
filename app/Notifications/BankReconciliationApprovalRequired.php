@@ -64,7 +64,7 @@ class BankReconciliationApprovalRequired extends Notification implements ShouldQ
      */
     public function toSms(object $notifiable): string
     {
-        $senderName = config('services.sms.senderid', 'SAFCO');
+        $senderName = config('services.sms.senderid');
         $date = $this->bankReconciliation->reconciliation_date ? $this->bankReconciliation->reconciliation_date->format('M d, Y') : 'N/A';
         
         return "Hello {$notifiable->name}, Bank reconciliation for {$this->bankReconciliation->bankAccount->name} ({$date}) requires your approval at {$this->approvalLevel->level_name} level. Please review and take action. - {$senderName}";

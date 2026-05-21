@@ -52,6 +52,9 @@
                                 <a href="{{ route('hospital.reception.patients.create') }}" class="btn btn-primary">
                                     <i class="bx bx-user-plus me-1"></i>Register New Patient
                                 </a>
+                                <a href="{{ route('hospital.reception.patients.index') }}" class="btn btn-success">
+                                    <i class="bx bx-list-ul me-1"></i>All Patients
+                                </a>
                                 <button type="button" class="btn btn-info" data-bs-toggle="modal" data-bs-target="#searchPatientModal">
                                     <i class="bx bx-search me-1"></i>Search Patient
                                 </button>

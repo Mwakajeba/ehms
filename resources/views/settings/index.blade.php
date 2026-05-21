@@ -188,6 +188,22 @@
                             </div>
                             @endcan
 
+                            <!-- Hospital Insurance Types -->
+                            <div class="col-md-6 col-lg-4 mb-4">
+                                <div class="card border-primary">
+                                    <div class="card-body text-center">
+                                        <div class="mb-3">
+                                            <i class="bx bx-shield-quarter fs-1 text-primary"></i>
+                                        </div>
+                                        <h5 class="card-title">Insurance Types</h5>
+                                        <p class="card-text">Manage insurance agents and providers shown on patient registration.</p>
+                                        <a href="{{ route('settings.insurance-types.index') }}" class="btn btn-primary">
+                                            <i class="bx bx-cog me-1"></i> Manage
+                                        </a>
+                                    </div>
+                                </div>
+                            </div>
+
                             <!-- SMS Setting -->
                            @role('super-admin')
                             <div class="col-md-6 col-lg-4 mb-4">

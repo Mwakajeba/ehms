@@ -285,17 +285,8 @@
                                         </div>
                                         <div class="col-md-6">
                                             <div class="mb-3">
-                                                <label for="insurance_type" class="form-label fw-bold">Insurance Type</label>
-                                                <select class="form-select @error('insurance_type') is-invalid @enderror" id="insurance_type" name="insurance_type">
-                                                    <option value="None" {{ old('insurance_type', 'None') == 'None' ? 'selected' : '' }}>None</option>
-                                                    <option value="NHIF" {{ old('insurance_type') == 'NHIF' ? 'selected' : '' }}>NHIF</option>
-                                                    <option value="CHF" {{ old('insurance_type') == 'CHF' ? 'selected' : '' }}>CHF</option>
-                                                    <option value="Jubilee" {{ old('insurance_type') == 'Jubilee' ? 'selected' : '' }}>Jubilee</option>
-                                                    <option value="Strategy" {{ old('insurance_type') == 'Strategy' ? 'selected' : '' }}>Strategy</option>
-                                                </select>
-                                                @error('insurance_type')
-                                                    <div class="invalid-feedback">{{ $message }}</div>
-                                                @enderror
+                                                <label for="insurance_type_id" class="form-label fw-bold">Insurance Type</label>
+                                                @include('hospital.reception.patients._insurance_type_select')
                                             </div>
                                         </div>
                                     </div>

@@ -3,6 +3,8 @@
 namespace App\Http\Controllers\Hospital;
 
 use App\Http\Controllers\Controller;
+use App\Helpers\SmsHelper;
+use App\Models\Hospital\HospitalInsuranceType;
 use App\Models\Hospital\Patient;
 use App\Models\Hospital\Visit;
 use App\Models\Hospital\VisitBill;
@@ -18,7 +20,9 @@ use App\Services\Hospital\MrnService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Carbon\Carbon;
+use Yajra\DataTables\Facades\DataTables;
 
 class ReceptionController extends Controller
 {
@@ -63,11 +67,82 @@ class ReceptionController extends Controller
     }
 
     /**
+     * List all patients (Ajax DataTable)
+     */
+    public function patientsIndex(Request $request)
+    {
+        if ($request->ajax()) {
+            $companyId = Auth::user()->company_id;
+            $branchId = session('branch_id') ?? Auth::user()->branch_id;
+
+            $patients = Patient::query()
+                ->where('company_id', $companyId)
+                ->where('branch_id', $branchId)
+                ->with('insuranceType')
+                ->withCount('visits');
+
+            return DataTables::of($patients)
+                ->addIndexColumn()
+                ->addColumn('full_name', function ($patient) {
+                    return e($patient->full_name);
+                })
+                ->addColumn('date_of_birth_display', function ($patient) {
+                    return $patient->date_of_birth
+                        ? $patient->date_of_birth->format('d M Y')
+                        : '-';
+                })
+                ->addColumn('gender_display', function ($patient) {
+                    return $patient->gender ? ucfirst($patient->gender) : '-';
+                })
+                ->addColumn('insurance_display', function ($patient) {
+                    $name = $patient->insurance_type_name;
+                    if ($name && $name !== 'None') {
+                        return '<span class="badge bg-info">' . e($name) . '</span>';
+                    }
+                    return '<span class="text-muted">None</span>';
+                })
+                ->addColumn('status', function ($patient) {
+                    if ($patient->is_active) {
+                        return '<span class="badge bg-success">Active</span>';
+                    }
+                    return '<span class="badge bg-secondary">Inactive</span>';
+                })
+                ->addColumn('registered_at', function ($patient) {
+                    return $patient->created_at ? $patient->created_at->format('d M Y, H:i') : '-';
+                })
+                ->addColumn('action', function ($patient) {
+                    $viewBtn = '<a href="' . route('hospital.reception.patients.show', $patient->id) . '" class="btn btn-sm btn-outline-info me-1" title="View"><i class="bx bx-show"></i></a>';
+                    $editBtn = '<a href="' . route('hospital.reception.patients.edit', $patient->id) . '" class="btn btn-sm btn-outline-primary me-1" title="Edit"><i class="bx bx-edit"></i></a>';
+                    $visitBtn = '<a href="' . route('hospital.reception.visits.create', $patient->id) . '" class="btn btn-sm btn-outline-success" title="Create Visit"><i class="bx bx-plus"></i></a>';
+                    return $viewBtn . $editBtn . $visitBtn;
+                })
+                ->editColumn('phone', fn ($patient) => $patient->phone ?? '-')
+                ->editColumn('email', fn ($patient) => $patient->email ?? '-')
+                ->editColumn('blood_group', fn ($patient) => $patient->blood_group ?? '-')
+                ->editColumn('age', fn ($patient) => $patient->age !== null ? $patient->age : '-')
+                ->filterColumn('full_name', function ($query, $keyword) {
+                    $query->where(function ($q) use ($keyword) {
+                        $q->where('first_name', 'like', "%{$keyword}%")
+                            ->orWhere('last_name', 'like', "%{$keyword}%")
+                            ->orWhereRaw("CONCAT(first_name, ' ', last_name) like ?", ["%{$keyword}%"]);
+                    });
+                })
+                ->orderColumn('registered_at', 'patients.created_at $1')
+                ->rawColumns(['insurance_display', 'status', 'action'])
+                ->make(true);
+        }
+
+        return view('hospital.reception.patients.index');
+    }
+
+    /**
      * Show patient registration form
      */
     public function createPatient()
     {
-        return view('hospital.reception.patients.create');
+        $insuranceTypes = HospitalInsuranceType::optionsForCompany(Auth::user()->company_id);
+
+        return view('hospital.reception.patients.create', compact('insuranceTypes'));
     }
 
     /**
@@ -91,7 +166,7 @@ class ReceptionController extends Controller
             'blood_group' => 'nullable|string|max:10',
             'id_number' => 'nullable|string|max:50',
             'insurance_number' => 'nullable|string|max:50',
-            'insurance_type' => 'nullable|in:NHIF,CHF,Jubilee,Strategy,None',
+            'insurance_type_id' => 'nullable|exists:hospital_insurance_types,id',
         ]);
 
         try {
@@ -100,6 +175,8 @@ class ReceptionController extends Controller
             $user = Auth::user();
             $companyId = $user->company_id;
             $branchId = session('branch_id') ?? $user->branch_id;
+
+            $validated = $this->applyInsuranceTypeToPatientData($validated, $companyId);
 
             // Generate MRN
             $mrn = MrnService::generate($companyId, $branchId);
@@ -115,12 +192,94 @@ class ReceptionController extends Controller
 
             DB::commit();
 
-            return redirect()->route('hospital.reception.patients.show', $patient->id)
+            $redirect = redirect()->route('hospital.reception.patients.show', $patient->id)
                 ->with('success', 'Patient registered successfully. MRN: ' . $mrn);
+
+            $smsResult = $this->sendPatientWelcomeSms($patient);
+            if (!($smsResult['success'] ?? false) && !empty($patient->phone)) {
+                $redirect->with('warning', 'Welcome SMS was not sent: ' . ($smsResult['error'] ?? 'Unknown error'));
+            } elseif (!empty($patient->phone) && ($smsResult['success'] ?? false)) {
+                $redirect->with('info', 'Welcome SMS sent to patient.');
+            }
+
+            return $redirect;
         } catch (\Exception $e) {
             DB::rollBack();
             return back()->withInput()->withErrors(['error' => 'Failed to register patient: ' . $e->getMessage()]);
         }
+    }
+
+    /**
+     * Send welcome SMS to newly registered patient
+     */
+    /**
+     * Resolve insurance_type_id to company-scoped type and set insurance_type label.
+     */
+    protected function applyInsuranceTypeToPatientData(array $data, int $companyId): array
+    {
+        $noneType = HospitalInsuranceType::forCompany($companyId)
+            ->where('is_none', true)
+            ->active()
+            ->first();
+
+        if (empty($data['insurance_type_id'])) {
+            $data['insurance_type_id'] = $noneType?->id;
+            $data['insurance_type'] = $noneType?->name ?? 'None';
+
+            return $data;
+        }
+
+        $insuranceType = HospitalInsuranceType::forCompany($companyId)
+            ->active()
+            ->find($data['insurance_type_id']);
+
+        if (!$insuranceType) {
+            throw new \InvalidArgumentException('Invalid insurance type for this company.');
+        }
+
+        $data['insurance_type'] = $insuranceType->name;
+
+        return $data;
+    }
+
+    protected function sendPatientWelcomeSms(Patient $patient): array
+    {
+        if (empty($patient->phone)) {
+            return [
+                'success' => false,
+                'error' => 'Patient has no phone number',
+            ];
+        }
+
+        if (!SmsHelper::isConfigured()) {
+            Log::warning('Patient welcome SMS skipped - SMS not configured', [
+                'patient_id' => $patient->id,
+                'mrn' => $patient->mrn,
+            ]);
+
+            return [
+                'success' => false,
+                'error' => 'SMS is not configured',
+            ];
+        }
+
+        $patient->load(['company', 'branch']);
+
+        $branchName = $patient->branch->name ?? 'tawi letu';
+        $companyPhone = $patient->company->phone ?? '';
+
+        $message = sprintf(
+            'Hello %s tunashukuru kwa kufika katika Kliniki yetu tawi la %s.Kwa mawasiliano tupigie kupitia %s.',
+            $patient->full_name,
+            $branchName,
+            $companyPhone ?: 'namba yetu ya huduma'
+        );
+
+        $phone = function_exists('normalize_phone_number')
+            ? normalize_phone_number($patient->phone)
+            : $patient->phone;
+
+        return SmsHelper::send($phone, $message);
     }
 
     /**
@@ -148,7 +307,7 @@ class ReceptionController extends Controller
      */
     public function showPatient($id)
     {
-        $patient = Patient::with(['visits', 'company', 'branch'])->findOrFail($id);
+        $patient = Patient::with(['visits', 'company', 'branch', 'insuranceType'])->findOrFail($id);
         return view('hospital.reception.patients.show', compact('patient'));
     }
 
@@ -157,8 +316,10 @@ class ReceptionController extends Controller
      */
     public function editPatient($id)
     {
-        $patient = Patient::findOrFail($id);
-        return view('hospital.reception.patients.edit', compact('patient'));
+        $patient = Patient::with('insuranceType')->findOrFail($id);
+        $insuranceTypes = HospitalInsuranceType::optionsForCompany(Auth::user()->company_id);
+
+        return view('hospital.reception.patients.edit', compact('patient', 'insuranceTypes'));
     }
 
     /**
@@ -182,11 +343,12 @@ class ReceptionController extends Controller
             'blood_group' => 'nullable|string|max:10',
             'id_number' => 'nullable|string|max:50',
             'insurance_number' => 'nullable|string|max:50',
-            'insurance_type' => 'nullable|in:NHIF,CHF,Jubilee,Strategy,None',
+            'insurance_type_id' => 'nullable|exists:hospital_insurance_types,id',
         ]);
 
         try {
             $patient = Patient::findOrFail($id);
+            $validated = $this->applyInsuranceTypeToPatientData($validated, $patient->company_id);
             $patient->update(array_merge($validated, [
                 'updated_by' => Auth::id(),
             ]));
@@ -232,7 +394,7 @@ class ReceptionController extends Controller
      */
     public function createVisit($patientId)
     {
-        $patient = Patient::findOrFail($patientId);
+        $patient = Patient::with('insuranceType')->findOrFail($patientId);
         $departments = HospitalDepartment::active()
             ->where('company_id', Auth::user()->company_id)
             ->get();

@@ -66,7 +66,7 @@ class BudgetRejected extends Notification implements ShouldQueue
      */
     public function toSms(object $notifiable): string
     {
-        $senderName = config('services.sms.senderid', 'SAFCO');
+        $senderName = config('services.sms.senderid');
         $shortReason = mb_substr($this->reason, 0, 100);
         if (mb_strlen($this->reason) > 100) {
             $shortReason .= '...';

@@ -59,7 +59,7 @@
                                     </div>
                                     <div class="col-md-6">
                                         <strong>Phone:</strong> {{ $patient->phone ?? 'N/A' }}<br>
-                                        <strong>Insurance:</strong> {{ $patient->insurance_type ?? 'None' }}<br>
+                                        <strong>Insurance:</strong> {{ $patient->insurance_type_name }}<br>
                                         <a href="{{ route('hospital.reception.patients.show', $patient->id) }}" class="btn btn-sm btn-outline-primary mt-2">
                                             <i class="bx bx-show me-1"></i>View Patient Details
                                         </a>

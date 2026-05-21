@@ -1651,7 +1651,7 @@ class DashboardController extends Controller
             } else {
                 $fullMessage = ($title ? ($title . ': ') : '') . $messageContent;
             }
-            // Send SMS via Beem
+            // Send SMS via Kilakona
             try {
                 \Log::info('Sending bulk SMS to customer', [
                     'customer_id' => $customer->id,

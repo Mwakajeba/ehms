@@ -34,6 +34,7 @@ class Patient extends Model
         'id_number',
         'insurance_number',
         'insurance_type',
+        'insurance_type_id',
         'is_active',
         'company_id',
         'branch_id',
@@ -68,9 +69,21 @@ class Patient extends Model
         return $this->belongsTo(User::class, 'updated_by');
     }
 
+    public function insuranceType()
+    {
+        return $this->belongsTo(HospitalInsuranceType::class, 'insurance_type_id');
+    }
+
     public function visits()
     {
         return $this->hasMany(Visit::class);
+    }
+
+    public function getInsuranceTypeNameAttribute(): string
+    {
+        return $this->insuranceType?->name
+            ?? $this->insurance_type
+            ?? 'None';
     }
 
     public function deletionRequests()

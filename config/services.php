@@ -36,17 +36,11 @@ return [
     ],
 
     'sms' => [
-        // Allow either SMS_* or BEEM_* env keys
-        'senderid' => env('SMS_SENDERID', env('BEEM_SENDER_ID', 'SAFCO')),
-        'token' => env('SMS_TOKEN', env('BEEM_SECRET_KEY')),
-        'key' => env('SMS_KEY', env('BEEM_API_KEY')),
-        'url' => env('SMS_URL', 'https://apisms.beem.africa/v1/send'),
-    ],
-
-    'beem' => [
-        'api_key' => env('BEEM_API_KEY'),
-        'secret_key' => env('BEEM_SECRET_KEY'),
-        'sender_id' => env('BEEM_SENDER_ID', 'SAFCO'),
+        'senderid' => env('SMS_SENDERID'),
+        'api_key' => env('SMS_API_KEY'),
+        'api_secret' => env('SMS_API_SECRET'),
+        'url' => env('SMS_URL', 'https://messaging.kilakona.co.tz/api/v1/vendor/message/send'),
+        'callback_url' => env('SMS_CALLBACK_URL'),
     ],
 
 ];

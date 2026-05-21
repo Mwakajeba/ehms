@@ -22,6 +22,22 @@
                 </div>
             @endif
 
+            @if(session('info'))
+                <div class="alert alert-info alert-dismissible fade show" role="alert">
+                    <i class="bx bx-info-circle me-2"></i>
+                    {{ session('info') }}
+                    <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                </div>
+            @endif
+
+            @if(session('warning'))
+                <div class="alert alert-warning alert-dismissible fade show" role="alert">
+                    <i class="bx bx-error-circle me-2"></i>
+                    {{ session('warning') }}
+                    <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                </div>
+            @endif
+
             <div class="row">
                 <!-- Patient Information Card -->
                 <div class="col-12 mb-4">
@@ -90,8 +106,8 @@
                                         <tr>
                                             <th>Insurance Type:</th>
                                             <td>
-                                                @if($patient->insurance_type && $patient->insurance_type !== 'None')
-                                                    <span class="badge bg-info">{{ $patient->insurance_type }}</span>
+                                                @if($patient->insurance_type_name !== 'None')
+                                                    <span class="badge bg-info">{{ $patient->insurance_type_name }}</span>
                                                 @else
                                                     None
                                                 @endif
