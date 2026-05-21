@@ -740,7 +740,9 @@ class SalesInvoiceController extends Controller
             'receipts.bankAccount',
             'payments.user',
             'payments.bankAccount',
-            'payments.cashDeposit.type'
+            'payments.cashDeposit.type',
+            'insurancePayments.insuranceType',
+            'insurancePayments.patient',
         ])->findOrFail($invoiceId);
 
         //select the unpaid invoices for the customer which is not the current invoice
@@ -1600,7 +1602,9 @@ class SalesInvoiceController extends Controller
         $request->validate([
             'amount' => 'required|numeric|min:0.01|max:' . $effectiveBalance,
             'payment_date' => 'required|date',
-            'payment_method' => 'required|in:bank,cash_deposit',
+            'payment_method' => 'required|in:bank,cash_deposit,insurance',
+            'insurance_type_id' => 'nullable|required_if:payment_method,insurance|exists:hospital_insurance_types,id',
+            'patient_id' => 'nullable|required_if:payment_method,insurance|exists:patients,id',
             // bank field(s) are validated manually below so we can accept either chart_account_id or bank_account_id
             'cash_deposit_id' => 'nullable|in:customer_balance',
             'payment_exchange_rate' => 'nullable|numeric|min:0.000001',
@@ -1661,7 +1665,30 @@ class SalesInvoiceController extends Controller
                 }
             }
 
-            if ($request->payment_method === 'cash_deposit') {
+            if ($request->payment_method === 'insurance') {
+                $patient = \App\Models\Hospital\Patient::where('company_id', $invoice->company_id)
+                    ->findOrFail($request->patient_id);
+
+                $insuranceType = \App\Models\Hospital\HospitalInsuranceType::forCompany($invoice->company_id)
+                    ->findOrFail($request->insurance_type_id);
+
+                if ($insuranceType->is_none) {
+                    throw new \InvalidArgumentException('Patient must have a valid insurance provider selected.');
+                }
+
+                if ($patient->insurance_type_id && (int) $patient->insurance_type_id !== (int) $insuranceType->id) {
+                    throw new \InvalidArgumentException('Selected insurance does not match the insurance registered for this patient.');
+                }
+
+                $result = $invoice->recordInsurancePayment(
+                    $paymentAmount,
+                    $request->payment_date,
+                    (int) $insuranceType->id,
+                    (int) $patient->id,
+                    $request->description,
+                    $request->payment_exchange_rate
+                );
+            } elseif ($request->payment_method === 'cash_deposit') {
                 // Validate customer has sufficient cash deposit balance (only actual cash deposits)
                 $customer = $invoice->customer;
                 $availableCashDeposits = $customer->cash_deposit_balance;
@@ -1742,7 +1769,28 @@ class SalesInvoiceController extends Controller
         // Get currencies from FX RATES MANAGEMENT
         $currencies = $this->getCurrenciesFromFxRates();
 
-        return view('sales.invoices.payment', compact('invoice', 'bankAccounts', 'currencies'));
+        $patient = null;
+        $patientInsurance = null;
+        if ($invoice->customer) {
+            $patient = \App\Services\Hospital\PatientCustomerResolver::findPatientForCustomer($invoice->customer);
+            if ($patient && $patient->insurance_type_id) {
+                $patientInsurance = \App\Models\Hospital\HospitalInsuranceType::forCompany($invoice->company_id)
+                    ->find($patient->insurance_type_id);
+            }
+        }
+
+        $canPayByInsurance = $patient
+            && $patientInsurance
+            && !$patientInsurance->is_none;
+
+        return view('sales.invoices.payment', compact(
+            'invoice',
+            'bankAccounts',
+            'currencies',
+            'patient',
+            'patientInsurance',
+            'canPayByInsurance'
+        ));
     }
 
     /**

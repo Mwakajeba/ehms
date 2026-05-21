@@ -136,19 +136,50 @@
                                             <div class="col-sm-8">TZS {{ number_format($item->cost_price, 2) }}</div>
                                         </div>
                                         <div class="row mb-3">
-                                            <div class="col-sm-4"><strong>Selling Price:</strong></div>
-                                            <div class="col-sm-8">TZS {{ number_format($item->unit_price, 2) }}</div>
+                                            <div class="col-sm-4"><strong>Default Selling Price:</strong></div>
+                                            <div class="col-sm-8">TZS {{ number_format($item->default_unit_price, 2) }}</div>
                                         </div>
+                                        @if(session('branch_id'))
+                                        <div class="row mb-3">
+                                            <div class="col-sm-4"><strong>This Branch Price:</strong></div>
+                                            <div class="col-sm-8">
+                                                TZS {{ number_format($item->sellingPriceForBranch((int) session('branch_id')), 2) }}
+                                            </div>
+                                        </div>
+                                        @endif
                                         <div class="row mb-0">
                                             <div class="col-sm-4"><strong>Profit Margin:</strong></div>
                                             <div class="col-sm-8">
+                                                @php $sell = $item->sellingPriceForBranch(session('branch_id') ? (int) session('branch_id') : null); @endphp
                                                 @if($item->cost_price > 0)
-                                                    {{ number_format((($item->unit_price - $item->cost_price) / $item->cost_price) * 100, 2) }}%
+                                                    {{ number_format((($sell - $item->cost_price) / $item->cost_price) * 100, 2) }}%
                                                 @else
                                                     N/A
                                                 @endif
                                             </div>
                                         </div>
+                                        @if($item->branchPrices->isNotEmpty())
+                                        <hr>
+                                        <h6 class="mb-2">Branch Selling Prices</h6>
+                                        <div class="table-responsive">
+                                            <table class="table table-sm table-bordered mb-0">
+                                                <thead class="table-light">
+                                                    <tr>
+                                                        <th>Branch</th>
+                                                        <th class="text-end">Price</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody>
+                                                    @foreach($item->branchPrices as $bp)
+                                                    <tr>
+                                                        <td>{{ $bp->branch->name ?? $bp->branch->branch_name ?? 'Branch #' . $bp->branch_id }}</td>
+                                                        <td class="text-end">TZS {{ number_format($bp->unit_price, 2) }}</td>
+                                                    </tr>
+                                                    @endforeach
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                        @endif
                                     </div>
                                 </div>
                             </div>

@@ -68,6 +68,10 @@
                                             <td>{{ $patient->full_name }}</td>
                                         </tr>
                                         <tr>
+                                            <th>Admitted Date:</th>
+                                            <td>{{ $patient->admitted_date ? $patient->admitted_date->format('d M Y') : 'N/A' }}</td>
+                                        </tr>
+                                        <tr>
                                             <th>Date of Birth:</th>
                                             <td>{{ $patient->date_of_birth ? $patient->date_of_birth->format('d M Y') : 'N/A' }}</td>
                                         </tr>

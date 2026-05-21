@@ -1089,10 +1089,179 @@ class SalesInvoice extends Model
         if ($cashDepositId) {
             // Cash Deposit Payment - Create Journal Entry (WHT not typically applicable for cash deposits)
             return $this->recordCashDepositPayment($amount, $paymentDate, $description, $cashDepositId, $paymentRate);
-        } else {
-            // Bank Payment - Create Receipt Entry (with WHT support)
-            return $this->recordBankPayment($amount, $paymentDate, $bankAccountId, $description, $whtTreatment, $whtRate, $vatMode, $vatRate, $paymentRate);
         }
+
+        // Bank Payment - Create Receipt Entry (with WHT support)
+        return $this->recordBankPayment($amount, $paymentDate, $bankAccountId, $description, $whtTreatment, $whtRate, $vatMode, $vatRate, $paymentRate);
+    }
+
+    /**
+     * Record payment settled by patient insurance (debit insurance receivable, credit trade receivable).
+     */
+    public function recordInsurancePayment(
+        float $amount,
+        $paymentDate,
+        int $insuranceTypeId,
+        int $patientId,
+        ?string $description = null,
+        $paymentExchangeRate = null
+    ) {
+        $user = auth()->user();
+        $userId = $user ? $user->id : ($this->created_by ?? 1);
+        $paymentDate = $paymentDate ?? now();
+
+        $insuranceType = \App\Models\Hospital\HospitalInsuranceType::forCompany($this->company_id)
+            ->findOrFail($insuranceTypeId);
+
+        $patient = \App\Models\Hospital\Patient::where('company_id', $this->company_id)
+            ->findOrFail($patientId);
+
+        if ($insuranceType->is_none) {
+            throw new \InvalidArgumentException('Cannot record insurance payment using a "No insurance" type.');
+        }
+
+        $description = $description ?: "Insurance payment for Invoice #{$this->invoice_number} via {$insuranceType->name}";
+
+        $functionalCurrency = \App\Models\SystemSetting::getValue('functional_currency', $this->company->functional_currency ?? 'TZS');
+        $invoiceCurrency = $this->currency ?? $functionalCurrency;
+        $invoiceExchangeRate = $this->exchange_rate ?? 1.000000;
+        $paymentRate = $paymentExchangeRate ?? $invoiceExchangeRate;
+        $needsConversion = ($invoiceCurrency !== $functionalCurrency && $invoiceExchangeRate != 1.000000);
+
+        $convertToLCYInvoiceRate = function ($fcyAmount) use ($needsConversion, $invoiceExchangeRate) {
+            return $needsConversion ? round($fcyAmount * $invoiceExchangeRate, 2) : $fcyAmount;
+        };
+
+        $amountLCY = $convertToLCYInvoiceRate($amount);
+
+        $receipt = Receipt::create([
+            'reference' => $this->id,
+            'reference_type' => 'sales_invoice',
+            'reference_number' => $this->invoice_number,
+            'amount' => $amount,
+            'currency' => $invoiceCurrency,
+            'exchange_rate' => $invoiceExchangeRate,
+            'amount_fcy' => $needsConversion ? $amount : null,
+            'amount_lcy' => $amountLCY,
+            'wht_treatment' => 'NONE',
+            'wht_rate' => 0,
+            'wht_amount' => 0,
+            'net_receivable' => $amount,
+            'vat_mode' => 'NONE',
+            'vat_amount' => 0,
+            'base_amount' => $amount,
+            'date' => $paymentDate,
+            'description' => $description,
+            'user_id' => $userId,
+            'bank_account_id' => null,
+            'payee_type' => 'customer',
+            'payee_id' => $this->customer_id,
+            'payee_name' => $this->customer->name,
+            'branch_id' => $this->branch_id,
+            'approved' => true,
+            'approved_by' => $userId,
+            'approved_at' => now(),
+        ]);
+
+        \App\Models\ReceiptItem::create([
+            'receipt_id' => $receipt->id,
+            'chart_account_id' => $this->getReceivableAccountId() ?? 18,
+            'amount' => $amount,
+            'wht_treatment' => 'NONE',
+            'wht_rate' => 0,
+            'wht_amount' => 0,
+            'base_amount' => $amount,
+            'net_receivable' => $amount,
+            'vat_mode' => 'NONE',
+            'vat_amount' => 0,
+            'description' => $description,
+        ]);
+
+        $insurancePayment = \App\Models\Hospital\InsuranceInvoicePayment::create([
+            'company_id' => $this->company_id,
+            'branch_id' => $this->branch_id,
+            'sales_invoice_id' => $this->id,
+            'patient_id' => $patient->id,
+            'insurance_type_id' => $insuranceType->id,
+            'receipt_id' => $receipt->id,
+            'amount' => $amount,
+            'currency' => $invoiceCurrency,
+            'exchange_rate' => $paymentRate,
+            'payment_date' => $paymentDate,
+            'description' => $description,
+            'user_id' => $userId,
+        ]);
+
+        $this->createInsurancePaymentGlTransactions($receipt, $insurancePayment, $amountLCY, $paymentDate, $description);
+
+        $this->createEarlyPaymentDiscountTransactions($amount, $paymentDate);
+
+        $this->increment('paid_amount', $amount);
+        $this->balance_due = $this->total_amount - $this->paid_amount;
+        $this->status = $this->paid_amount >= $this->total_amount ? 'paid' : 'sent';
+        $this->save();
+        $this->syncLinkedOpeningBalance();
+
+        return $insurancePayment;
+    }
+
+    /**
+     * GL: Debit insurance receivable, credit trade receivable.
+     */
+    protected function createInsurancePaymentGlTransactions($receipt, $insurancePayment, float $amountLCY, $paymentDate, string $description): void
+    {
+        $userId = auth()->id() ?? ($this->created_by ?? 1);
+        $insuranceReceivableId = $this->getInsuranceReceivableAccountId();
+        $tradeReceivableId = $this->getReceivableAccountId() ?? 18;
+
+        $transactions = [
+            [
+                'chart_account_id' => $insuranceReceivableId,
+                'customer_id' => $this->customer_id,
+                'amount' => $amountLCY,
+                'nature' => 'debit',
+                'transaction_id' => $insurancePayment->id,
+                'transaction_type' => 'insurance_invoice_payment',
+                'date' => $paymentDate,
+                'description' => "Insurance receivable - {$description}",
+                'branch_id' => $this->branch_id,
+                'user_id' => $userId,
+            ],
+            [
+                'chart_account_id' => $tradeReceivableId,
+                'customer_id' => $this->customer_id,
+                'amount' => $amountLCY,
+                'nature' => 'credit',
+                'transaction_id' => $receipt->id,
+                'transaction_type' => 'receipt',
+                'date' => $paymentDate,
+                'description' => $description,
+                'branch_id' => $this->branch_id,
+                'user_id' => $userId,
+            ],
+        ];
+
+        foreach ($transactions as $transaction) {
+            \App\Models\GlTransaction::create($transaction);
+        }
+    }
+
+    public function getInsuranceReceivableAccountId(): int
+    {
+        $settingValue = \App\Models\SystemSetting::where('key', 'insurance_receivable_account_id')->value('value');
+        if ($settingValue) {
+            return (int) $settingValue;
+        }
+
+        $account = \App\Models\ChartAccount::where('account_name', 'like', '%Insurance%Receivable%')
+            ->orWhere('account_name', 'like', '%Insurance Receivable%')
+            ->first();
+
+        if ($account) {
+            return (int) $account->id;
+        }
+
+        throw new \RuntimeException('Insurance receivable account is not configured. Set insurance_receivable_account_id in system settings or create an Insurance Receivable chart account.');
     }
 
     /**
@@ -1737,6 +1906,11 @@ class SalesInvoice extends Model
     {
         return $this->hasMany(Payment::class, 'reference', 'invoice_number')
             ->where('reference_type', 'sales_invoice');
+    }
+
+    public function insurancePayments()
+    {
+        return $this->hasMany(\App\Models\Hospital\InsuranceInvoicePayment::class, 'sales_invoice_id');
     }
 
     public function creditNotes(): HasMany

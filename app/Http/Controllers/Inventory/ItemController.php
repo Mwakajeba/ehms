@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Inventory;
 use App\Http\Controllers\Controller;
 use Vinkla\Hashids\Facades\Hashids;
 
+use App\Models\Branch;
 use App\Models\Inventory\Item;
 use App\Models\Inventory\Category;
 use App\Models\Inventory\Movement;
@@ -27,6 +28,7 @@ use App\Models\GlTransaction;
 use App\Models\AccountClass;
 use App\Models\AccountClassGroup;
 use App\Services\InventoryCostService;
+use App\Services\InventoryItemBranchPriceService;
 use App\Models\InventoryCostLayer;
 use App\Models\Inventory\OpeningBalance;
 use Illuminate\Http\Request;
@@ -59,7 +61,9 @@ class ItemController extends Controller
         }
         
         if ($request->ajax()) {
+            $branchId = session('branch_id');
             $items = Item::with(['category', 'stockLevels'])
+                ->withBranchPriceFor($branchId)
                 ->where('company_id', Auth::user()->company_id)
                 ->select('inventory_items.*');
 
@@ -76,6 +80,17 @@ class ItemController extends Controller
                 })
                 ->addColumn('status_badge', function ($item) {
                     return $item->status_badge;
+                })
+                ->editColumn('unit_price', function ($item) use ($branchId) {
+                    $default = $item->default_unit_price;
+                    $selling = $item->sellingPriceForBranch($branchId ? (int) $branchId : null);
+
+                    if ($branchId && abs($selling - $default) > 0.001) {
+                        return number_format($selling, 2)
+                            . ' <small class="text-muted">(def. ' . number_format($default, 2) . ')</small>';
+                    }
+
+                    return number_format($selling, 2);
                 })
                 ->editColumn('current_stock', function ($item) {
                     $stockService = new InventoryStockService();
@@ -94,7 +109,7 @@ class ItemController extends Controller
                 ->addColumn('actions', function ($item) {
                     return $item->actions;
                 })
-                ->rawColumns(['expiry_tracking_badge', 'status_badge', 'actions'])
+                ->rawColumns(['expiry_tracking_badge', 'status_badge', 'actions', 'unit_price'])
                 ->make(true);
         }
 
@@ -213,7 +228,12 @@ class ItemController extends Controller
             $prefillCategoryId = $decoded[0] ?? null;
         }
 
-        return view('inventory.items.create', compact('categories', 'locations', 'inventoryAccounts', 'salesAccounts', 'costAccounts', 'vatAccounts', 'withholdingTaxAccounts', 'withholdingTaxExpenseAccounts', 'purchasePayableAccounts', 'discountAccounts', 'discountIncomeAccounts', 'prefillCategoryId'));
+        $branches = Branch::where('company_id', Auth::user()->company_id)
+            ->where('status', 'active')
+            ->orderBy('name')
+            ->get();
+
+        return view('inventory.items.create', compact('categories', 'locations', 'inventoryAccounts', 'salesAccounts', 'costAccounts', 'vatAccounts', 'withholdingTaxAccounts', 'withholdingTaxExpenseAccounts', 'purchasePayableAccounts', 'discountAccounts', 'discountIncomeAccounts', 'prefillCategoryId', 'branches'));
     }
 
     public function store(Request $request)
@@ -229,6 +249,8 @@ class ItemController extends Controller
             'unit_of_measure' => 'nullable|string|max:50',
             'cost_price' => 'nullable|numeric|min:0',
             'unit_price' => 'required|numeric|min:0',
+            'branch_prices' => 'nullable|array',
+            'branch_prices.*' => 'nullable|numeric|min:0',
             'minimum_stock' => 'nullable|numeric|min:0',
             'maximum_stock' => 'nullable|numeric|min:0',
             'reorder_level' => 'nullable|numeric|min:0',
@@ -279,6 +301,12 @@ class ItemController extends Controller
                 'opening_balance_value' => 0,
             ]);
 
+            app(InventoryItemBranchPriceService::class)->sync(
+                $item,
+                $request->input('branch_prices', []),
+                Auth::user()->company_id
+            );
+
             // Opening balance transactions/movements will be created from the Opening Balance section
 
             DB::commit();
@@ -308,6 +336,10 @@ class ItemController extends Controller
         $this->authorize('view', $item);
         
         $item->load(['category', 'movements', 'stockLevels']);
+        $item->setRelation(
+            'branchPrices',
+            \App\Models\Inventory\ItemBranchPrice::where('item_id', $item->id)->with('branch')->orderBy('branch_id')->get()
+        );
 
         // Get cost layer information
         $costService = new InventoryCostService();
@@ -430,9 +462,9 @@ class ItemController extends Controller
                 ->with('error', 'Invalid item ID');
         }
 
-        $item = Item::findOrFail($itemId);
+        $item = Item::withoutGlobalScope('withSessionBranchPrice')->findOrFail($itemId);
         $this->authorize('update', $item);
-        
+
         $categories = Category::where('company_id', Auth::user()->company_id)->get();
         $locations = InventoryLocation::where('company_id', Auth::user()->company_id)->get();
         
@@ -493,7 +525,16 @@ class ItemController extends Controller
             $query->whereIn('name', ['Revenue', 'Income']);
         })->get();
 
-        return view('inventory.items.edit', compact('item', 'categories', 'locations', 'inventoryAccounts', 'salesAccounts', 'costAccounts', 'vatAccounts', 'withholdingTaxAccounts', 'withholdingTaxExpenseAccounts', 'purchasePayableAccounts', 'discountAccounts', 'discountIncomeAccounts'));
+        $branches = Branch::where('company_id', Auth::user()->company_id)
+            ->where('status', 'active')
+            ->orderBy('name')
+            ->get();
+
+        $branchPriceValues = \App\Models\Inventory\ItemBranchPrice::where('item_id', $item->id)
+            ->pluck('unit_price', 'branch_id')
+            ->toArray();
+
+        return view('inventory.items.edit', compact('item', 'categories', 'locations', 'inventoryAccounts', 'salesAccounts', 'costAccounts', 'vatAccounts', 'withholdingTaxAccounts', 'withholdingTaxExpenseAccounts', 'purchasePayableAccounts', 'discountAccounts', 'discountIncomeAccounts', 'branches', 'branchPriceValues'));
     }
 
     public function update(Request $request, $encodedId)
@@ -518,6 +559,8 @@ class ItemController extends Controller
             'unit_of_measure' => 'nullable|string|max:50',
             'cost_price' => 'nullable|numeric|min:0',
             'unit_price' => 'required|numeric|min:0',
+            'branch_prices' => 'nullable|array',
+            'branch_prices.*' => 'nullable|numeric|min:0',
             'minimum_stock' => 'nullable|numeric|min:0',
             'maximum_stock' => 'nullable|numeric|min:0',
             'reorder_level' => 'nullable|numeric|min:0',
@@ -594,6 +637,12 @@ class ItemController extends Controller
                 'track_expiry' => $request->has('track_expiry'),
                 'has_opening_balance' => $hasOpeningBalanceFinal,
             ]);
+
+            app(InventoryItemBranchPriceService::class)->sync(
+                $item,
+                $request->input('branch_prices', []),
+                Auth::user()->company_id
+            );
        
             DB::commit();
 

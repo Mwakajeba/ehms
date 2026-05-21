@@ -4,6 +4,7 @@ namespace App\Models\Inventory;
 
 use App\Traits\LogsActivity;
 use Vinkla\Hashids\Facades\Hashids;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletes;
@@ -14,6 +15,18 @@ use App\Models\User;
 class Item extends Model
 {
     use HasFactory, LogsActivity;
+
+    protected static function booted(): void
+    {
+        static::addGlobalScope('withSessionBranchPrice', function (Builder $builder) {
+            $branchId = session('branch_id');
+            if ($branchId) {
+                $builder->with([
+                    'branchPrices' => fn ($q) => $q->where('branch_id', (int) $branchId),
+                ]);
+            }
+        });
+    }
 
     protected $table = 'inventory_items';
 
@@ -89,6 +102,65 @@ class Item extends Model
     public function stockLevels()
     {
         return $this->hasMany(\App\Models\Inventory\StockLevel::class, 'item_id');
+    }
+
+    public function branchPrices()
+    {
+        return $this->hasMany(ItemBranchPrice::class, 'item_id');
+    }
+
+    /**
+     * Default company-wide selling price (stored on inventory_items.unit_price).
+     */
+    public function getDefaultUnitPriceAttribute(): float
+    {
+        return (float) ($this->attributes['unit_price'] ?? 0);
+    }
+
+    /**
+     * Selling price for a branch (override or default).
+     */
+    public function sellingPriceForBranch(?int $branchId = null): float
+    {
+        $default = (float) ($this->attributes['unit_price'] ?? 0);
+        $branchId ??= session('branch_id') ? (int) session('branch_id') : null;
+
+        if (!$branchId || !$this->exists) {
+            return $default;
+        }
+
+        if ($this->relationLoaded('branchPrices')) {
+            $override = $this->branchPrices->firstWhere('branch_id', $branchId);
+
+            return $override ? (float) $override->unit_price : $default;
+        }
+
+        $overridePrice = $this->branchPrices()
+            ->where('branch_id', $branchId)
+            ->value('unit_price');
+
+        return $overridePrice !== null ? (float) $overridePrice : $default;
+    }
+
+    /**
+     * Resolve unit_price for the active branch when reading the attribute.
+     */
+    public function getUnitPriceAttribute($value): float
+    {
+        return $this->sellingPriceForBranch(null);
+    }
+
+    public function scopeWithBranchPriceFor($query, ?int $branchId = null)
+    {
+        $branchId ??= session('branch_id') ? (int) session('branch_id') : null;
+
+        if ($branchId) {
+            return $query->with([
+                'branchPrices' => fn ($q) => $q->where('branch_id', $branchId),
+            ]);
+        }
+
+        return $query;
     }
 
     // Scopes

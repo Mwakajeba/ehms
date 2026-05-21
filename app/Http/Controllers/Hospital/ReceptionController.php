@@ -153,6 +153,7 @@ class ReceptionController extends Controller
         $validated = $request->validate([
             'first_name' => 'required|string|max:255',
             'last_name' => 'required|string|max:255',
+            'admitted_date' => 'nullable|date',
             'date_of_birth' => 'nullable|date',
             'gender' => 'nullable|in:male,female,other',
             'phone' => 'nullable|string|max:20',
@@ -177,6 +178,10 @@ class ReceptionController extends Controller
             $branchId = session('branch_id') ?? $user->branch_id;
 
             $validated = $this->applyInsuranceTypeToPatientData($validated, $companyId);
+
+            if (empty($validated['admitted_date'])) {
+                $validated['admitted_date'] = now()->toDateString();
+            }
 
             // Generate MRN
             $mrn = MrnService::generate($companyId, $branchId);
@@ -268,10 +273,16 @@ class ReceptionController extends Controller
         $branchName = $patient->branch->name ?? 'tawi letu';
         $companyPhone = $patient->company->phone ?? '';
 
+        $admittedDate = $patient->admitted_date
+            ? $patient->admitted_date->format('d/m/Y')
+            : now()->format('d/m/Y');
+
         $message = sprintf(
-            'Hello %s tunashukuru kwa kufika katika Kliniki yetu tawi la %s.Kwa mawasiliano tupigie kupitia %s.',
+            'Hello %s tunashukuru kwa kufika katika Kliniki yetu tawi la %s. Nambari yako ya matibabu (MRN) ni %s. Tarehe ya kujiunga: %s. Kwa mawasiliano tupigie kupitia %s.',
             $patient->full_name,
             $branchName,
+            $patient->mrn,
+            $admittedDate,
             $companyPhone ?: 'namba yetu ya huduma'
         );
 
@@ -330,6 +341,7 @@ class ReceptionController extends Controller
         $validated = $request->validate([
             'first_name' => 'required|string|max:255',
             'last_name' => 'required|string|max:255',
+            'admitted_date' => 'nullable|date',
             'date_of_birth' => 'nullable|date',
             'gender' => 'nullable|in:male,female,other',
             'phone' => 'nullable|string|max:20',

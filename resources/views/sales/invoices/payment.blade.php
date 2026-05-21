@@ -68,6 +68,9 @@
                                             <option value="">Select Payment Method</option>
                                             <option value="bank" {{ old('payment_method') == 'bank' ? 'selected' : '' }}>Bank Payment</option>
                                             <option value="cash_deposit" {{ old('payment_method') == 'cash_deposit' ? 'selected' : '' }}>Cash Deposit</option>
+                                            @if($canPayByInsurance ?? false)
+                                            <option value="insurance" {{ old('payment_method') == 'insurance' ? 'selected' : '' }}>Payment by Insurance</option>
+                                            @endif
                                         </select>
                                         @error('payment_method') <div class="invalid-feedback d-block">{{ $message }}</div> @enderror
                                     </div>
@@ -84,6 +87,28 @@
                                         @error('chart_account_id') <div class="invalid-feedback d-block">{{ $message }}</div> @enderror
                                     </div>
                                     
+                                    <div class="mb-3" id="insurance_section" style="display: none;">
+                                        <label for="insurance_type_id" class="form-label">Patient Insurance <span class="text-danger">*</span></label>
+                                        <select class="form-select" id="insurance_type_id" name="insurance_type_id">
+                                            @if($patientInsurance ?? null)
+                                                <option value="{{ $patientInsurance->id }}" selected>
+                                                    {{ $patientInsurance->name }}
+                                                    @if($patient->insurance_number ?? false)
+                                                        ({{ $patient->insurance_number }})
+                                                    @endif
+                                                </option>
+                                            @endif
+                                        </select>
+                                        <input type="hidden" name="patient_id" id="patient_id" value="{{ old('patient_id', $patient->id ?? '') }}">
+                                        <small class="text-muted d-block mt-1">
+                                            Patient: <strong>{{ $patient->full_name ?? 'N/A' }}</strong>
+                                            @if($patient->mrn ?? false) | MRN: {{ $patient->mrn }} @endif
+                                        </small>
+                                        <small class="text-muted d-block">Posts to insurance receivable (not bank). Trade receivable is cleared.</small>
+                                        @error('insurance_type_id') <div class="invalid-feedback d-block">{{ $message }}</div> @enderror
+                                        @error('patient_id') <div class="invalid-feedback d-block">{{ $message }}</div> @enderror
+                                    </div>
+
                                     <div class="mb-3" id="cash_deposit_section" style="display: none;">
                                         <label for="cash_deposit_id" class="form-label">Customer Cash Deposit Account</label>
                                         <select class="form-select select2-single" id="cash_deposit_id" name="cash_deposit_id">
@@ -314,6 +339,22 @@
                             <span>Customer:</span>
                             <span>{{ $invoice->customer->name }}</span>
                         </div>
+                        @if($patient ?? null)
+                        <div class="d-flex justify-content-between mb-2">
+                            <span>Patient:</span>
+                            <span>{{ $patient->full_name }} ({{ $patient->mrn }})</span>
+                        </div>
+                        @if($patientInsurance && !$patientInsurance->is_none)
+                        <div class="d-flex justify-content-between mb-2">
+                            <span>Insurance:</span>
+                            <span class="badge bg-info">{{ $patientInsurance->name }}</span>
+                        </div>
+                        @endif
+                        @else
+                        <div class="alert alert-warning py-2 mt-2 mb-2">
+                            <small><i class="bx bx-info-circle me-1"></i>Insurance payment is only available when this customer matches a registered patient with insurance (not "None").</small>
+                        </div>
+                        @endif
                         <div class="d-flex justify-content-between mb-2">
                             <span>Invoice Date:</span>
                             <span>{{ $invoice->invoice_date->format('M d, Y') }}</span>
@@ -616,12 +657,14 @@ $(document).ready(function() {
         const selectedMethod = $(this).val();
         
         // Hide all sections first
-        $('#bank_account_section, #cash_deposit_section, #wht_section').hide();
+        $('#bank_account_section, #cash_deposit_section, #insurance_section, #wht_section').hide();
         
         // Show relevant section based on selection
         if (selectedMethod === 'bank') {
             $('#bank_account_section').show();
             $('#wht_section').show(); // Show WHT section for bank payments
+        } else if (selectedMethod === 'insurance') {
+            $('#insurance_section').show();
         } else if (selectedMethod === 'cash_deposit') {
             $('#cash_deposit_section').show();
             

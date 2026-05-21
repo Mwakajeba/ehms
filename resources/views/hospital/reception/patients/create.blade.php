@@ -86,6 +86,18 @@
                                     <div class="row">
                                         <div class="col-md-6">
                                             <div class="mb-3">
+                                                <label for="admitted_date" class="form-label fw-bold">Admitted Date</label>
+                                                <input type="date" class="form-control @error('admitted_date') is-invalid @enderror"
+                                                       id="admitted_date" name="admitted_date"
+                                                       value="{{ old('admitted_date', now()->format('Y-m-d')) }}">
+                                                @error('admitted_date')
+                                                    <div class="invalid-feedback">{{ $message }}</div>
+                                                @enderror
+                                                <div class="form-text text-muted">Date the patient was registered / admitted.</div>
+                                            </div>
+                                        </div>
+                                        <div class="col-md-6">
+                                            <div class="mb-3">
                                                 <label for="date_of_birth" class="form-label fw-bold">Date of Birth</label>
                                                 <input type="date" class="form-control @error('date_of_birth') is-invalid @enderror"
                                                        id="date_of_birth" name="date_of_birth" value="{{ old('date_of_birth') }}"

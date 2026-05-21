@@ -91,7 +91,7 @@
                                         <th>Code</th>
                                         <th>Category</th>
                                         <th>Cost Price</th>
-                                        <th>Selling Price</th>
+                                        <th>Selling Price{{ session('branch_id') ? ' (This Branch)' : '' }}</th>
                                         <th>Current Stock</th>
                                         <th>Expiry Tracking</th>
                                         <th>Status</th>

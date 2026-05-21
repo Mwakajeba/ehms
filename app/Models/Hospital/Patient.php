@@ -17,6 +17,7 @@ class Patient extends Model
 
     protected $fillable = [
         'mrn',
+        'admitted_date',
         'first_name',
         'last_name',
         'date_of_birth',
@@ -43,6 +44,7 @@ class Patient extends Model
     ];
 
     protected $casts = [
+        'admitted_date' => 'date',
         'date_of_birth' => 'date',
         'age' => 'integer',
         'is_active' => 'boolean',
