@@ -427,6 +427,7 @@ class ReceptionController extends Controller
     public function storeVisit(Request $request, $patientId)
     {
         $validated = $request->validate([
+            'visit_date' => 'required|date',
             'visit_type' => 'required|in:new,follow_up,emergency',
             'chief_complaint' => 'nullable|string',
             'departments' => 'required|array|min:1',
@@ -443,9 +444,17 @@ class ReceptionController extends Controller
             $companyId = $user->company_id;
             $branchId = session('branch_id') ?? $user->branch_id;
             $patient = Patient::findOrFail($patientId);
+            $visitAt = Carbon::parse($validated['visit_date']);
 
-            // Generate visit number
-            $visitNumber = 'VIS-' . now()->format('Ymd') . '-' . str_pad(Visit::whereDate('visit_date', today())->count() + 1, 4, '0', STR_PAD_LEFT);
+            // Generate visit number from chosen visiting date
+            $visitNumber = 'VIS-' . $visitAt->format('Ymd') . '-' . str_pad(
+                Visit::where('company_id', $companyId)
+                    ->whereDate('visit_date', $visitAt->toDateString())
+                    ->count() + 1,
+                4,
+                '0',
+                STR_PAD_LEFT
+            );
 
             // Create visit
             $visit = Visit::create([
@@ -457,7 +466,7 @@ class ReceptionController extends Controller
                 'company_id' => $companyId,
                 'branch_id' => $branchId,
                 'created_by' => $user->id,
-                'visit_date' => now(),
+                'visit_date' => $visitAt,
             ]);
 
             // Create visit departments
@@ -489,7 +498,7 @@ class ReceptionController extends Controller
                     'visit_id' => $visit->id,
                     'department_id' => $departmentId,
                     'status' => 'waiting',
-                    'waiting_started_at' => now(),
+                    'waiting_started_at' => $visitAt,
                     'sequence' => $sequence++,
                 ]);
             }
@@ -508,8 +517,8 @@ class ReceptionController extends Controller
                     // Create sales invoice for pre-billing services
                     $invoice = SalesInvoice::create([
                         'customer_id' => $customer->id,
-                        'invoice_date' => now(),
-                        'due_date' => now(), // Pre-bills are due immediately
+                        'invoice_date' => $visitAt,
+                        'due_date' => $visitAt, // Pre-bills are due immediately
                         'status' => 'draft',
                         'currency' => 'TZS',
                         'exchange_rate' => 1.000000,

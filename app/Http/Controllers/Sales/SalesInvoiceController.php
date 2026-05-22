@@ -782,7 +782,18 @@ class SalesInvoiceController extends Controller
             ->where('application_type', 'invoice')
             ->sum('amount_applied');
 
-        return view('sales.invoices.show', compact('invoice', 'unpaidInvoices', 'creditNotesApplied', 'totalUnpaidAmountInTZS', 'currentInvoiceBalanceInTZS', 'totalCustomerBalanceInTZS', 'functionalCurrency'));
+        $hospitalLink = \App\Services\Hospital\PatientCustomerResolver::hospitalLinkForInvoice($invoice);
+
+        return view('sales.invoices.show', compact(
+            'invoice',
+            'unpaidInvoices',
+            'creditNotesApplied',
+            'totalUnpaidAmountInTZS',
+            'currentInvoiceBalanceInTZS',
+            'totalCustomerBalanceInTZS',
+            'functionalCurrency',
+            'hospitalLink'
+        ));
     }
 
     /**
@@ -1780,15 +1791,12 @@ class SalesInvoiceController extends Controller
         $patientInsurance = null;
         if ($invoice->customer) {
             $patient = \App\Services\Hospital\PatientCustomerResolver::findPatientForCustomer($invoice->customer);
-            if ($patient && $patient->insurance_type_id) {
-                $patientInsurance = \App\Models\Hospital\HospitalInsuranceType::forCompany($invoice->company_id)
-                    ->find($patient->insurance_type_id);
+            if ($patient) {
+                $patientInsurance = \App\Services\Hospital\PatientCustomerResolver::resolveInsuranceTypeForPatient($patient);
             }
         }
 
-        $canPayByInsurance = $patient
-            && $patientInsurance
-            && !$patientInsurance->is_none;
+        $canPayByInsurance = $patient && $patientInsurance;
 
         return view('sales.invoices.payment', compact(
             'invoice',
@@ -1828,7 +1836,7 @@ class SalesInvoiceController extends Controller
             $data = [
                 [
                     'id' => 'customer_balance',
-                    'balance_text' => "Cash Deposits: {$customer->name} (ID: {$customer->customerNo}) - Available: " . number_format($cashDepositBalance, 2) . " TSh"
+                    'balance_text' => "Customer Deposits: {$customer->name} (ID: {$customer->customerNo}) - Available: " . number_format($cashDepositBalance, 2) . " TSh"
                 ]
             ];
             }

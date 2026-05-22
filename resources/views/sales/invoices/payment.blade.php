@@ -66,8 +66,8 @@
                                         <label for="payment_method" class="form-label">Payment Method <span class="text-danger">*</span></label>
                                         <select class="form-select" id="payment_method" name="payment_method" required>
                                             <option value="">Select Payment Method</option>
-                                            <option value="bank" {{ old('payment_method') == 'bank' ? 'selected' : '' }}>Bank Payment</option>
-                                            <option value="cash_deposit" {{ old('payment_method') == 'cash_deposit' ? 'selected' : '' }}>Cash Deposit</option>
+                                            <option value="bank" {{ old('payment_method') == 'bank' ? 'selected' : '' }}>Bank or Cash Payment</option>
+                                            <option value="cash_deposit" {{ old('payment_method') == 'cash_deposit' ? 'selected' : '' }}>Customer Deposits</option>
                                             @if($canPayByInsurance ?? false)
                                             <option value="insurance" {{ old('payment_method') == 'insurance' ? 'selected' : '' }}>Payment by Insurance</option>
                                             @endif
@@ -110,11 +110,11 @@
                                     </div>
 
                                     <div class="mb-3" id="cash_deposit_section" style="display: none;">
-                                        <label for="cash_deposit_id" class="form-label">Customer Cash Deposit Account</label>
+                                        <label for="cash_deposit_id" class="form-label">Customer Deposits Account</label>
                                         <select class="form-select select2-single" id="cash_deposit_id" name="cash_deposit_id">
                                             <option value="">Select Customer Account</option>
                                         </select>
-                                        <small class="text-muted">Customer: {{ $invoice->customer->name ?? 'N/A' }} - Cash deposit balance will be shown below</small>
+                                        <small class="text-muted">Customer: {{ $invoice->customer->name ?? 'N/A' }} - Customer deposit balance will be shown below</small>
                                         <div id="no_account_message" class="text-danger mt-2" style="display: none;">
                                             <i class="bx bx-info-circle"></i> No account available for this customer
                                         </div>
@@ -192,7 +192,7 @@
                             </div>
                             @endif
 
-                            <!-- WHT Section (for Bank Payments only) -->
+                            <!-- WHT Section (for Bank or Cash Payment only) -->
                             <div class="row mb-4" id="wht_section" style="display: none;">
                                 <div class="col-md-12">
                                     <div class="card border-info">
