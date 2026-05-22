@@ -38,6 +38,11 @@
                         @php
                             $isPaid = ($invoice->status === 'paid');
                         @endphp
+                        @if(!empty($hospitalLink))
+                        <a href="{{ $hospitalLink['url'] }}" class="btn btn-outline-primary me-1" title="{{ $hospitalLink['hint'] }}">
+                            <i class="bx bx-plus-medical me-1"></i>Hospital Management
+                        </a>
+                        @endif
                         @can('record sales payment')
                         <a href="{{ $isPaid ? '#' : route('sales.invoices.payment-form', $invoice->encoded_id) }}" class="btn btn-success me-1 {{ $isPaid ? 'disabled' : '' }}" {{ $isPaid ? 'aria-disabled=true tabindex=-1' : '' }}>
                             <i class="bx bx-money me-1"></i>Record Payment
@@ -588,9 +593,9 @@
                                         <td>
                                             @if($payment['type'] === 'payment')
                                                 @if($payment['cash_deposit_id'])
-                                                    <span class="badge bg-info">Cash Deposit</span>
+                                                    <span class="badge bg-info">Customer Deposits</span>
                                                 @else
-                                                    <span class="badge bg-info">Cash Deposit (Customer Balance)</span>
+                                                    <span class="badge bg-info">Customer Deposits (Balance)</span>
                                                 @endif
                                             @else
                                                 @if(!empty($payment['insurance_payment']))

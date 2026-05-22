@@ -60,8 +60,8 @@
                                         <label for="payment_method" class="form-label">Payment Method <span class="text-danger">*</span></label>
                                         <select class="form-select" id="payment_method" name="payment_method" required>
                                             <option value="">Select Payment Method</option>
-                                            <option value="bank" {{ old('payment_method', $payment->bank_account_id ? 'bank' : 'cash_deposit') == 'bank' ? 'selected' : '' }}>Bank Payment</option>
-                                            <option value="cash_deposit" {{ old('payment_method', $payment->bank_account_id ? 'bank' : 'cash_deposit') == 'cash_deposit' ? 'selected' : '' }}>Cash Deposit</option>
+                                            <option value="bank" {{ old('payment_method', $payment->bank_account_id ? 'bank' : 'cash_deposit') == 'bank' ? 'selected' : '' }}>Bank or Cash Payment</option>
+                                            <option value="cash_deposit" {{ old('payment_method', $payment->bank_account_id ? 'bank' : 'cash_deposit') == 'cash_deposit' ? 'selected' : '' }}>Customer Deposits</option>
                                         </select>
                                         @error('payment_method') <div class="invalid-feedback d-block">{{ $message }}</div> @enderror
                                     </div>
@@ -184,7 +184,7 @@
                             <span>Payment Method:</span>
                             <span>
                                 @if($payment->cash_deposit_id)
-                                    <span class="badge bg-info">Cash Deposit</span>
+                                    <span class="badge bg-info">Customer Deposits</span>
                                 @elseif($payment->bank_account_id)
                                     <span class="badge bg-primary">{{ $payment->bankAccount->name ?? 'Bank' }}</span>
                                 @else

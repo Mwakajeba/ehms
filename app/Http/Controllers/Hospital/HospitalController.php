@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Hospital\Patient;
 use App\Models\Hospital\Visit;
 use App\Models\Hospital\VisitBill;
+use App\Services\Hospital\VisitBillingClearance;
 use App\Models\Sales\SalesInvoice;
 use App\Models\Customer;
 use Illuminate\Http\Request;
@@ -172,35 +173,18 @@ class HospitalController extends Controller
                         });
                     })
                     ->count(),
-                // Audiology pending: visits waiting for audiology with cleared bills OR paid SalesInvoice for audiology
-                'audiology_pending' => Visit::where('company_id', $companyId)
-                    ->where('branch_id', $branchId)
-                    ->whereHas('visitDepartments', function ($q) {
-                        $q->whereHas('department', function ($query) {
-                            $query->where('type', 'audiology');
-                        })->where('status', 'waiting');
-                    })
-                    ->where(function ($query) use ($companyId, $branchId) {
-                        $query->whereHas('bills', function ($q) {
-                            $q->where('clearance_status', 'cleared');
-                        })
-                        ->orWhereExists(function ($subQuery) use ($companyId, $branchId) {
-                            $subQuery->select(DB::raw(1))
-                                ->from('sales_invoices')
-                                ->join('customers', 'sales_invoices.customer_id', '=', 'customers.id')
-                                ->join('patients', 'patients.id', '=', 'visits.patient_id')
-                                ->where('sales_invoices.company_id', $companyId)
-                                ->where('sales_invoices.branch_id', $branchId)
-                                ->where('sales_invoices.status', 'paid')
-                                ->where('sales_invoices.notes', 'like', '%Audiology test bill for Visit #%')
-                                ->where(function ($q) {
-                                    $q->whereColumn('customers.phone', 'patients.phone')
-                                        ->orWhereColumn('customers.email', 'patients.email')
-                                        ->orWhereColumn('customers.name', DB::raw("CONCAT(patients.first_name, ' ', patients.last_name)"));
-                                });
-                        });
-                    })
-                    ->count(),
+                // Audiology waiting (cleared bill or paid invoice including pre-billing)
+                'audiology_pending' => VisitBillingClearance::applyClearedBillOrPaidInvoice(
+                    Visit::where('company_id', $companyId)
+                        ->where('branch_id', $branchId)
+                        ->whereHas('visitDepartments', function ($q) {
+                            $q->whereHas('department', function ($query) {
+                                $query->where('type', 'audiology');
+                            })->where('status', 'waiting');
+                        }),
+                    $companyId,
+                    $branchId
+                )->count(),
                 // Dental pending: visits waiting for dental with cleared bills OR paid SalesInvoice
                 'dental_pending' => Visit::where('company_id', $companyId)
                     ->where('branch_id', $branchId)

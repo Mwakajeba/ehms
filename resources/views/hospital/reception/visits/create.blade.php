@@ -88,7 +88,19 @@
                                         </h6>
                                     </div>
                                     <div class="row">
-                                        <div class="col-md-6">
+                                        <div class="col-md-4">
+                                            <div class="mb-3">
+                                                <label for="visit_date" class="form-label fw-bold">Visiting Date <span class="text-danger">*</span></label>
+                                                <input type="datetime-local" class="form-control @error('visit_date') is-invalid @enderror"
+                                                       id="visit_date" name="visit_date" required
+                                                       value="{{ old('visit_date', now()->format('Y-m-d\TH:i')) }}">
+                                                <div class="form-text">Choose date and time for this visit (supports backdating).</div>
+                                                @error('visit_date')
+                                                    <div class="invalid-feedback">{{ $message }}</div>
+                                                @enderror
+                                            </div>
+                                        </div>
+                                        <div class="col-md-4">
                                             <div class="mb-3">
                                                 <label for="visit_type" class="form-label fw-bold">Visit Type <span class="text-danger">*</span></label>
                                                 <select class="form-select @error('visit_type') is-invalid @enderror" id="visit_type" name="visit_type" required>
@@ -102,7 +114,7 @@
                                                 @enderror
                                             </div>
                                         </div>
-                                        <div class="col-md-6">
+                                        <div class="col-md-4">
                                             <div class="mb-3">
                                                 <label for="chief_complaint" class="form-label fw-bold">Chief Complaint</label>
                                                 <textarea class="form-control @error('chief_complaint') is-invalid @enderror"
