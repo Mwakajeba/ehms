@@ -876,6 +876,7 @@ Route::prefix('hospital/reception')->name('hospital.reception.')->middleware(['a
     Route::get('/patients/{id}', [App\Http\Controllers\Hospital\ReceptionController::class, 'showPatient'])->name('patients.show');
     Route::get('/patients/{id}/edit', [App\Http\Controllers\Hospital\ReceptionController::class, 'editPatient'])->name('patients.edit');
     Route::put('/patients/{id}', [App\Http\Controllers\Hospital\ReceptionController::class, 'updatePatient'])->name('patients.update');
+    Route::delete('/patients/{id}', [App\Http\Controllers\Hospital\ReceptionController::class, 'destroyPatient'])->name('patients.destroy');
     Route::post('/patients/{id}/request-deletion', [App\Http\Controllers\Hospital\ReceptionController::class, 'requestPatientDeletion'])->name('patients.request-deletion');
     Route::get('/patients-search', [App\Http\Controllers\Hospital\ReceptionController::class, 'searchPatients'])->name('patients.search');
     

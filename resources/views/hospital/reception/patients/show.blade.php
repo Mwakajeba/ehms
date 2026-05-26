@@ -14,6 +14,18 @@
             <h6 class="mb-0 text-uppercase">PATIENT DETAILS</h6>
             <hr />
 
+            @if(session('error'))
+                <div class="alert alert-danger alert-dismissible fade show" role="alert">
+                    {{ session('error') }}
+                    <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                </div>
+            @endif
+            @if(session('info'))
+                <div class="alert alert-info alert-dismissible fade show" role="alert">
+                    {{ session('info') }}
+                    <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                </div>
+            @endif
             @if(session('success'))
                 <div class="alert alert-success alert-dismissible fade show" role="alert">
                     <i class="bx bx-check-circle me-2"></i>
@@ -27,6 +39,17 @@
                     <i class="bx bx-info-circle me-2"></i>
                     {{ session('info') }}
                     <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                </div>
+            @endif
+
+            @if(!empty($patientAttachedRecords) && auth()->user()->can('delete patient'))
+                <div class="alert alert-warning alert-dismissible fade show" role="alert">
+                    <strong>Cannot delete directly:</strong> this patient has linked records —
+                    @foreach($patientAttachedRecords as $label => $count)
+                        {{ $label }} ({{ $count }})@if(!$loop->last), @endif
+                    @endforeach
+                    . Use <strong>Request Deletion</strong> for supervisor review.
+                    <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
                 </div>
             @endif
 
@@ -272,9 +295,26 @@
                                     <a href="{{ route('hospital.reception.patients.edit', $patient->id) }}" class="btn btn-primary">
                                         <i class="bx bx-edit me-1"></i>Edit Patient
                                     </a>
-                                    <button type="button" class="btn btn-danger" data-bs-toggle="modal" data-bs-target="#deleteRequestModal">
-                                        <i class="bx bx-trash me-1"></i>Request Deletion
-                                    </button>
+                                    @can('delete patient')
+                                        @if($canDeletePatient ?? false)
+                                            <form action="{{ route('hospital.reception.patients.destroy', $patient->id) }}" method="POST" class="d-inline"
+                                                  onsubmit="return confirm('Permanently delete this patient? This cannot be undone.');">
+                                                @csrf
+                                                @method('DELETE')
+                                                <button type="submit" class="btn btn-danger">
+                                                    <i class="bx bx-trash me-1"></i>Delete Patient
+                                                </button>
+                                            </form>
+                                        @else
+                                            <button type="button" class="btn btn-outline-danger" data-bs-toggle="modal" data-bs-target="#deleteRequestModal">
+                                                <i class="bx bx-trash me-1"></i>Request Deletion
+                                            </button>
+                                        @endif
+                                    @else
+                                        <button type="button" class="btn btn-outline-danger" data-bs-toggle="modal" data-bs-target="#deleteRequestModal">
+                                            <i class="bx bx-trash me-1"></i>Request Deletion
+                                        </button>
+                                    @endcan
                                 </div>
                             </div>
                         </div>
