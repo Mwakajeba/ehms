@@ -17,6 +17,7 @@ use App\Models\Customer;
 use App\Models\Sales\SalesInvoice;
 use App\Models\Sales\SalesInvoiceItem;
 use App\Services\Hospital\MrnService;
+use App\Services\Hospital\PatientDeletionGuard;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
@@ -319,7 +320,16 @@ class ReceptionController extends Controller
     public function showPatient($id)
     {
         $patient = Patient::with(['visits', 'company', 'branch', 'insuranceType'])->findOrFail($id);
-        return view('hospital.reception.patients.show', compact('patient'));
+        $this->authorizePatientCompany($patient);
+
+        $canDeletePatient = auth()->user()->can('delete patient') && $patient->canBeDeleted();
+        $patientAttachedRecords = $patient->attachedRecordCounts();
+
+        return view('hospital.reception.patients.show', compact(
+            'patient',
+            'canDeletePatient',
+            'patientAttachedRecords'
+        ));
     }
 
     /**
@@ -373,6 +383,44 @@ class ReceptionController extends Controller
     }
 
     /**
+     * Delete patient immediately (admin with delete patient permission, no linked records only).
+     */
+    public function destroyPatient($id)
+    {
+        if (!auth()->user()->can('delete patient')) {
+            abort(403, 'Unauthorized action.');
+        }
+
+        $patient = Patient::findOrFail($id);
+        $this->authorizePatientCompany($patient);
+
+        if (!PatientDeletionGuard::canDelete($patient)) {
+            return redirect()
+                ->route('hospital.reception.patients.show', $patient->id)
+                ->with('error', PatientDeletionGuard::blockingMessage($patient));
+        }
+
+        try {
+            $patient->deletionRequests()->where('status', 'pending')->update([
+                'status' => 'rejected',
+                'approval_notes' => 'Cancelled: patient deleted directly by administrator.',
+                'approved_by' => auth()->id(),
+                'approved_at' => now(),
+            ]);
+
+            $patient->delete();
+
+            return redirect()
+                ->route('hospital.reception.patients.index')
+                ->with('success', 'Patient deleted successfully.');
+        } catch (\Exception $e) {
+            return redirect()
+                ->route('hospital.reception.patients.show', $patient->id)
+                ->with('error', 'Failed to delete patient: ' . $e->getMessage());
+        }
+    }
+
+    /**
      * Request patient deletion (requires approval)
      */
     public function requestPatientDeletion(Request $request, $id)
@@ -383,7 +431,14 @@ class ReceptionController extends Controller
 
         try {
             $patient = Patient::findOrFail($id);
+            $this->authorizePatientCompany($patient);
             $user = Auth::user();
+
+            if (PatientDeletionGuard::canDelete($patient)) {
+                return redirect()
+                    ->route('hospital.reception.patients.show', $patient->id)
+                    ->with('info', 'This patient has no linked records. An administrator can delete them directly using Delete Patient.');
+            }
 
             PatientDeletionRequest::create([
                 'patient_id' => $patient->id,
@@ -882,5 +937,12 @@ class ReceptionController extends Controller
         ]);
 
         return $customer;
+    }
+
+    protected function authorizePatientCompany(Patient $patient): void
+    {
+        if ($patient->company_id !== Auth::user()->company_id) {
+            abort(403, 'Unauthorized access to this patient.');
+        }
     }
 }

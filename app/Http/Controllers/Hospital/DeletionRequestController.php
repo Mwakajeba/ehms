@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Hospital;
 
 use App\Http\Controllers\Controller;
 use App\Models\Hospital\PatientDeletionRequest;
+use App\Services\Hospital\PatientDeletionGuard;
 use App\Models\Hospital\Patient;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -146,8 +147,16 @@ class DeletionRequestController extends Controller
                 'approval_notes' => $validated['approval_notes'] ?? null,
             ]);
 
-            // Soft delete the patient
             $patient = Patient::findOrFail($deletionRequest->patient_id);
+
+            if (!PatientDeletionGuard::canDelete($patient)) {
+                DB::rollBack();
+                return response()->json([
+                    'success' => false,
+                    'message' => PatientDeletionGuard::blockingMessage($patient),
+                ], 422);
+            }
+
             $patient->delete();
 
             DB::commit();

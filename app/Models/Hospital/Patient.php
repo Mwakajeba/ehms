@@ -93,6 +93,17 @@ class Patient extends Model
         return $this->hasMany(PatientDeletionRequest::class);
     }
 
+    public function canBeDeleted(): bool
+    {
+        return \App\Services\Hospital\PatientDeletionGuard::canDelete($this);
+    }
+
+    /** @return array<string, int> */
+    public function attachedRecordCounts(): array
+    {
+        return \App\Services\Hospital\PatientDeletionGuard::attachedRecords($this);
+    }
+
     // Accessors
     public function getFullNameAttribute()
     {
