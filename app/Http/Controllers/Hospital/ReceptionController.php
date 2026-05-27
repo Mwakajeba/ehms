@@ -128,6 +128,17 @@ class ReceptionController extends Controller
                             ->orWhereRaw("CONCAT(first_name, ' ', last_name) like ?", ["%{$keyword}%"]);
                     });
                 })
+                ->filterColumn('insurance_type', function ($query, $keyword) {
+                    $query->where(function ($q) use ($keyword) {
+                        $q->where('insurance_type', 'like', "%{$keyword}%")
+                            ->orWhereHas('insuranceType', function ($q2) use ($keyword) {
+                                $q2->where('name', 'like', "%{$keyword}%");
+                            });
+                    });
+                })
+                ->filterColumn('mrn', function ($query, $keyword) {
+                    $query->where('mrn', 'like', "%{$keyword}%");
+                })
                 ->orderColumn('registered_at', 'patients.created_at $1')
                 ->rawColumns(['insurance_display', 'status', 'action'])
                 ->make(true);

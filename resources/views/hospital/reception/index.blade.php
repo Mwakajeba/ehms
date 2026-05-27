@@ -53,14 +53,44 @@
                                     <i class="bx bx-user-plus me-1"></i>Register New Patient
                                 </a>
                                 <a href="{{ route('hospital.reception.patients.index') }}" class="btn btn-success">
-                                    <i class="bx bx-list-ul me-1"></i>All Patients
+                                    <i class="bx bx-list-ul me-1"></i>All Patients (full list)
                                 </a>
-                                <button type="button" class="btn btn-info" data-bs-toggle="modal" data-bs-target="#searchPatientModal">
-                                    <i class="bx bx-search me-1"></i>Search Patient
-                                </button>
                                 <a href="{{ route('hospital.reception.index') }}" class="btn btn-secondary">
                                     <i class="bx bx-refresh me-1"></i>Refresh
                                 </a>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Patient search (Ajax DataTable) -->
+            <div class="row mb-4">
+                <div class="col-12">
+                    <div class="card">
+                        <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+                            <h5 class="card-title mb-0">
+                                <i class="bx bx-search me-2"></i>Find Patient
+                            </h5>
+                            <small class="text-muted">Search by MRN, name, phone, or email</small>
+                        </div>
+                        <div class="card-body">
+                            <div class="table-responsive">
+                                <table id="receptionPatientsTable" class="table table-striped table-hover w-100">
+                                    <thead class="table-light">
+                                        <tr>
+                                            <th>#</th>
+                                            <th>MRN</th>
+                                            <th>Full Name</th>
+                                            <th>Phone</th>
+                                            <th>Insurance</th>
+                                            <th>Visits</th>
+                                            <th>Registered</th>
+                                            <th>Actions</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody></tbody>
+                                </table>
                             </div>
                         </div>
                     </div>
@@ -277,65 +307,38 @@
         </div>
     </div>
 
-    <!-- Search Patient Modal -->
-    <div class="modal fade" id="searchPatientModal" tabindex="-1" aria-labelledby="searchPatientModalLabel" aria-hidden="true">
-        <div class="modal-dialog modal-lg">
-            <div class="modal-content">
-                <div class="modal-header">
-                    <h5 class="modal-title" id="searchPatientModalLabel">Search Patient</h5>
-                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-                </div>
-                <div class="modal-body">
-                    <div class="mb-3">
-                        <label for="searchTerm" class="form-label">Search by MRN, Name, or Phone</label>
-                        <input type="text" class="form-control" id="searchTerm" placeholder="Enter MRN, name, or phone number">
-                    </div>
-                    <div id="searchResults" class="mt-3">
-                        <!-- Results will be displayed here -->
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
-
 @push('scripts')
 <script>
-    document.getElementById('searchTerm').addEventListener('input', function(e) {
-        const term = e.target.value;
-        const resultsDiv = document.getElementById('searchResults');
-        
-        if (term.length < 2) {
-            resultsDiv.innerHTML = '';
-            return;
-        }
-        
-        fetch(`{{ route('hospital.reception.patients.search') }}?term=${encodeURIComponent(term)}`)
-            .then(response => response.json())
-            .then(data => {
-                if (data.length > 0) {
-                    let html = '<div class="list-group">';
-                    data.forEach(patient => {
-                        html += `
-                            <a href="{{ url('hospital/reception/patients') }}/${patient.id}" class="list-group-item list-group-item-action">
-                                <div class="d-flex w-100 justify-content-between">
-                                    <h6 class="mb-1">${patient.first_name} ${patient.last_name}</h6>
-                                    <small>${patient.mrn}</small>
-                                </div>
-                                <p class="mb-1">${patient.phone || 'No phone'}</p>
-                            </a>
-                        `;
-                    });
-                    html += '</div>';
-                    resultsDiv.innerHTML = html;
-                } else {
-                    resultsDiv.innerHTML = '<p class="text-muted">No patients found.</p>';
-                }
-            })
-            .catch(error => {
-                console.error('Error:', error);
-                resultsDiv.innerHTML = '<p class="text-danger">Error searching patients.</p>';
-            });
+$(document).ready(function() {
+    $('#receptionPatientsTable').DataTable({
+        processing: true,
+        serverSide: true,
+        ajax: "{{ route('hospital.reception.patients.index') }}",
+        columns: [
+            { data: 'DT_RowIndex', name: 'DT_RowIndex', orderable: false, searchable: false },
+            { data: 'mrn', name: 'mrn' },
+            { data: 'full_name', name: 'full_name' },
+            { data: 'phone', name: 'phone' },
+            { data: 'insurance_display', name: 'insurance_type', orderable: false },
+            { data: 'visits_count', name: 'visits_count', searchable: false },
+            { data: 'registered_at', name: 'created_at' },
+            { data: 'action', name: 'action', orderable: false, searchable: false }
+        ],
+        dom: '<"row mb-2"<"col-sm-12 col-md-6"l><"col-sm-12 col-md-6"f>>rtip',
+        language: {
+            lengthMenu: 'Show _MENU_ patients',
+            search: '',
+            searchPlaceholder: 'Search MRN, name, phone, email...',
+            processing: '<div class="d-flex justify-content-center py-3"><div class="spinner-border text-primary" role="status"></div></div>',
+            emptyTable: 'No patients registered yet.',
+            zeroRecords: 'No matching patients found.'
+        },
+        pageLength: 10,
+        lengthMenu: [[10, 25, 50, 100], [10, 25, 50, 100]],
+        responsive: true,
+        order: [[6, 'desc']]
     });
+});
 </script>
 @endpush
 @endsection
