@@ -18,6 +18,7 @@ use App\Services\InventoryStockService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
+use Yajra\DataTables\Facades\DataTables;
 
 class DoctorController extends Controller
 {
@@ -36,43 +37,9 @@ class DoctorController extends Controller
         $companyId = $user->company_id;
         $branchId = session('branch_id') ?? $user->branch_id;
 
-        // Get visits waiting for doctor (bills must be cleared and triage completed)
-        // Show visits that either have no bills OR have at least one cleared bill
-        $waitingVisits = Visit::with(['patient', 'visitDepartments.department', 'triageVitals', 'bills'])
-            ->where('company_id', $companyId)
-            ->where('branch_id', $branchId)
-            ->whereHas('visitDepartments', function ($q) {
-                $q->whereHas('department', function ($query) {
-                    $query->where('type', 'doctor');
-                })->where('status', 'waiting');
-            })
-            ->where(function ($query) {
-                // Either no bills exist, or at least one bill is cleared
-                $query->doesntHave('bills')
-                      ->orWhereHas('bills', function ($q) {
-                          $q->where('clearance_status', 'cleared');
-                      });
-            })
-            ->whereHas('triageVitals') // Must have completed triage
-            ->orderBy('visit_date', 'asc')
-            ->get();
-
-        // Get visits in service at doctor
-        $inServiceVisits = Visit::with(['patient', 'visitDepartments.department', 'consultation'])
-            ->where('company_id', $companyId)
-            ->where('branch_id', $branchId)
-            ->whereHas('visitDepartments', function ($q) {
-                $q->whereHas('department', function ($query) {
-                    $query->where('type', 'doctor');
-                })->where('status', 'in_service');
-            })
-            ->orderBy('visit_date', 'asc')
-            ->get();
-
-        // Get statistics - use actual collections for accuracy (same data as displayed in tables)
         $stats = [
-            'waiting' => $waitingVisits->count(),
-            'in_service' => $inServiceVisits->count(),
+            'waiting' => $this->doctorWaitingVisitsQuery($companyId, $branchId)->count(),
+            'in_service' => $this->doctorInServiceVisitsQuery($companyId, $branchId)->count(),
             'completed_today' => Visit::where('company_id', $companyId)
                 ->where('branch_id', $branchId)
                 ->whereHas('consultation', function ($q) {
@@ -81,7 +48,174 @@ class DoctorController extends Controller
                 ->count(),
         ];
 
-        return view('hospital.doctor.index', compact('waitingVisits', 'inServiceVisits', 'stats'));
+        return view('hospital.doctor.index', compact('stats'));
+    }
+
+    /**
+     * Waiting patients for doctor (Ajax DataTable)
+     */
+    public function waitingVisitsIndex(Request $request)
+    {
+        if (!$request->ajax()) {
+            abort(404);
+        }
+
+        $user = Auth::user();
+        $companyId = $user->company_id;
+        $branchId = session('branch_id') ?? $user->branch_id;
+
+        $visits = $this->doctorWaitingVisitsQuery($companyId, $branchId)->orderBy('visit_date', 'asc');
+
+        return DataTables::of($visits)
+            ->addIndexColumn()
+            ->addColumn('visit_number', fn ($visit) => '<strong>' . e($visit->visit_number) . '</strong>')
+            ->addColumn('patient_name', fn ($visit) => e($visit->patient?->full_name ?? 'N/A'))
+            ->addColumn('mrn', fn ($visit) => e($visit->patient?->mrn ?? 'N/A'))
+            ->addColumn('age', fn ($visit) => $visit->patient?->age ? e($visit->patient->age . ' years') : 'N/A')
+            ->addColumn('priority', function ($visit) {
+                $priority = $visit->triageVitals?->priority ?? 'medium';
+                $colors = [
+                    'low' => 'success',
+                    'medium' => 'warning',
+                    'high' => 'danger',
+                    'critical' => 'dark',
+                ];
+                $color = $colors[$priority] ?? 'secondary';
+
+                return '<span class="badge bg-' . e($color) . '">' . e(ucfirst($priority)) . '</span>';
+            })
+            ->addColumn('waiting_time', function ($visit) {
+                $doctorDept = $this->getDoctorVisitDepartment($visit);
+                if ($doctorDept?->waiting_started_at) {
+                    return e($doctorDept->waiting_started_at->diffForHumans());
+                }
+
+                return 'N/A';
+            })
+            ->addColumn('action', function ($visit) {
+                $startForm = '<form action="' . route('hospital.doctor.start-service', $visit->id) . '" method="POST" class="d-inline">'
+                    . csrf_field()
+                    . '<button type="submit" class="btn btn-sm btn-primary"><i class="bx bx-play me-1"></i>Start Consultation</button>'
+                    . '</form>';
+                $recordBtn = '<a href="' . route('hospital.doctor.create', $visit->id) . '" class="btn btn-sm btn-info ms-1">'
+                    . '<i class="bx bx-plus me-1"></i>Record Consultation</a>';
+
+                return $startForm . $recordBtn;
+            })
+            ->filterColumn('patient_name', function ($query, $keyword) {
+                $query->whereHas('patient', function ($q) use ($keyword) {
+                    $q->where('first_name', 'like', "%{$keyword}%")
+                        ->orWhere('last_name', 'like', "%{$keyword}%")
+                        ->orWhereRaw("CONCAT(first_name, ' ', last_name) like ?", ["%{$keyword}%"]);
+                });
+            })
+            ->filterColumn('mrn', function ($query, $keyword) {
+                $query->whereHas('patient', function ($q) use ($keyword) {
+                    $q->where('mrn', 'like', "%{$keyword}%");
+                });
+            })
+            ->rawColumns(['visit_number', 'priority', 'action'])
+            ->make(true);
+    }
+
+    /**
+     * In-service patients for doctor (Ajax DataTable)
+     */
+    public function inServiceVisitsIndex(Request $request)
+    {
+        if (!$request->ajax()) {
+            abort(404);
+        }
+
+        $user = Auth::user();
+        $companyId = $user->company_id;
+        $branchId = session('branch_id') ?? $user->branch_id;
+
+        $visits = $this->doctorInServiceVisitsQuery($companyId, $branchId)->orderBy('visit_date', 'asc');
+
+        return DataTables::of($visits)
+            ->addIndexColumn()
+            ->addColumn('visit_number', fn ($visit) => '<strong>' . e($visit->visit_number) . '</strong>')
+            ->addColumn('patient_name', fn ($visit) => e($visit->patient?->full_name ?? 'N/A'))
+            ->addColumn('mrn', fn ($visit) => e($visit->patient?->mrn ?? 'N/A'))
+            ->addColumn('age', fn ($visit) => $visit->patient?->age ? e($visit->patient->age . ' years') : 'N/A')
+            ->addColumn('service_started', function ($visit) {
+                $doctorDept = $this->getDoctorVisitDepartment($visit);
+
+                return $doctorDept?->service_started_at
+                    ? e($doctorDept->service_started_at->format('H:i'))
+                    : 'N/A';
+            })
+            ->addColumn('service_time', function ($visit) {
+                $doctorDept = $this->getDoctorVisitDepartment($visit);
+                if ($doctorDept?->service_started_at) {
+                    return e($doctorDept->service_started_at->diffForHumans());
+                }
+
+                return 'N/A';
+            })
+            ->addColumn('action', function ($visit) {
+                if (!$visit->consultation) {
+                    return '<a href="' . route('hospital.doctor.create', $visit->id) . '" class="btn btn-sm btn-info">'
+                        . '<i class="bx bx-plus me-1"></i>Record Consultation</a>';
+                }
+
+                return '<a href="' . route('hospital.doctor.show', $visit->id) . '" class="btn btn-sm btn-success">'
+                    . '<i class="bx bx-show me-1"></i>View Consultation</a>';
+            })
+            ->filterColumn('patient_name', function ($query, $keyword) {
+                $query->whereHas('patient', function ($q) use ($keyword) {
+                    $q->where('first_name', 'like', "%{$keyword}%")
+                        ->orWhere('last_name', 'like', "%{$keyword}%")
+                        ->orWhereRaw("CONCAT(first_name, ' ', last_name) like ?", ["%{$keyword}%"]);
+                });
+            })
+            ->filterColumn('mrn', function ($query, $keyword) {
+                $query->whereHas('patient', function ($q) use ($keyword) {
+                    $q->where('mrn', 'like', "%{$keyword}%");
+                });
+            })
+            ->rawColumns(['visit_number', 'action'])
+            ->make(true);
+    }
+
+    protected function doctorWaitingVisitsQuery(int $companyId, int $branchId)
+    {
+        return Visit::query()
+            ->with(['patient', 'visitDepartments.department', 'triageVitals', 'bills'])
+            ->where('company_id', $companyId)
+            ->where('branch_id', $branchId)
+            ->whereHas('visitDepartments', function ($q) {
+                $q->whereHas('department', function ($query) {
+                    $query->where('type', 'doctor');
+                })->where('status', 'waiting');
+            })
+            ->where(function ($query) {
+                $query->doesntHave('bills')
+                    ->orWhereHas('bills', function ($q) {
+                        $q->where('clearance_status', 'cleared');
+                    });
+            })
+            ->whereHas('triageVitals');
+    }
+
+    protected function doctorInServiceVisitsQuery(int $companyId, int $branchId)
+    {
+        return Visit::query()
+            ->with(['patient', 'visitDepartments.department', 'consultation'])
+            ->where('company_id', $companyId)
+            ->where('branch_id', $branchId)
+            ->whereHas('visitDepartments', function ($q) {
+                $q->whereHas('department', function ($query) {
+                    $query->where('type', 'doctor');
+                })->where('status', 'in_service');
+            });
+    }
+
+    protected function getDoctorVisitDepartment(Visit $visit): ?VisitDepartment
+    {
+        return $visit->visitDepartments
+            ->first(fn ($vd) => $vd->department?->type === 'doctor');
     }
 
     /**
