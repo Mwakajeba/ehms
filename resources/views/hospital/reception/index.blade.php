@@ -104,112 +104,31 @@
                         <div class="card-header">
                             <h5 class="card-title mb-0">
                                 <i class="bx bx-list-ul me-2"></i>Active Visits
-                                <span class="badge bg-primary ms-2">{{ $activeVisits->count() }}</span>
+                                <span class="badge bg-primary ms-2">{{ $activeVisitsCount ?? 0 }}</span>
                             </h5>
                         </div>
                         <div class="card-body">
-                            @if($activeVisits->count() > 0)
-                                <div class="table-responsive">
-                                    <table class="table table-hover">
-                                        <thead>
-                                            <tr>
-                                                <th>Visit #</th>
-                                                <th>Patient</th>
-                                                <th>MRN</th>
-                                                <th>Phone</th>
-                                                <th>Current Department</th>
-                                                <th>Status</th>
-                                                <th>Waiting Time</th>
-                                                <th>Service Time</th>
-                                                <th>Start Time</th>
-                                                <th>Visit Date</th>
-                                                <th>Actions</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody>
-                                            @foreach($activeVisits as $visit)
-                                                @php
-                                                    $currentDept = $visit->visitDepartments()
-                                                        ->whereIn('status', ['waiting', 'in_service'])
-                                                        ->orderBy('sequence')
-                                                        ->first();
-                                                    
-                                                    // Calculate total time in hospital
-                                                    $totalTime = 0;
-                                                    foreach ($visit->visitDepartments as $vd) {
-                                                        if ($vd->waiting_time_seconds) {
-                                                            $totalTime += $vd->waiting_time_seconds;
-                                                        }
-                                                        if ($vd->service_time_seconds) {
-                                                            $totalTime += $vd->service_time_seconds;
-                                                        }
-                                                    }
-                                                    $totalHours = floor($totalTime / 3600);
-                                                    $totalMinutes = floor(($totalTime % 3600) / 60);
-                                                    $totalSeconds = $totalTime % 60;
-                                                @endphp
-                                                <tr>
-                                                    <td><strong>{{ $visit->visit_number }}</strong></td>
-                                                    <td>{{ $visit->patient->full_name }}</td>
-                                                    <td>{{ $visit->patient->mrn }}</td>
-                                                    <td>{{ $visit->patient->phone ?? 'N/A' }}</td>
-                                                    <td>
-                                                        @if($currentDept)
-                                                            <span class="badge bg-info">{{ $currentDept->department->name ?? 'N/A' }}</span>
-                                                            <br><small class="text-muted">{{ ucfirst(str_replace('_', ' ', $currentDept->department->type ?? '')) }}</small>
-                                                        @else
-                                                            <span class="text-muted">-</span>
-                                                        @endif
-                                                    </td>
-                                                    <td>
-                                                        <span class="status-badge status-{{ str_replace('_', '-', $currentDept->status ?? 'waiting') }}">
-                                                            {{ ucfirst(str_replace('_', ' ', $currentDept->status ?? 'waiting')) }}
-                                                        </span>
-                                                    </td>
-                                                    <td>
-                                                        @if($currentDept)
-                                                            <span class="text-warning">
-                                                                <i class="bx bx-time"></i> {{ $currentDept->waiting_time_formatted ?? '00:00:00' }}
-                                                            </span>
-                                                        @else
-                                                            <span class="text-muted">-</span>
-                                                        @endif
-                                                    </td>
-                                                    <td>
-                                                        @if($currentDept && $currentDept->service_started_at)
-                                                            <span class="text-primary">
-                                                                <i class="bx bx-time-five"></i> {{ $currentDept->service_time_formatted ?? '00:00:00' }}
-                                                            </span>
-                                                        @else
-                                                            <span class="text-muted">-</span>
-                                                        @endif
-                                                    </td>
-                                                    <td>
-                                                        @if($currentDept && $currentDept->service_started_at)
-                                                            <small>{{ $currentDept->service_started_at->format('H:i') }}</small>
-                                                        @elseif($currentDept && $currentDept->waiting_started_at)
-                                                            <small class="text-muted">{{ $currentDept->waiting_started_at->format('H:i') }}</small>
-                                                        @else
-                                                            <span class="text-muted">-</span>
-                                                        @endif
-                                                    </td>
-                                                    <td>{{ $visit->visit_date->format('d M Y, H:i') }}</td>
-                                                    <td>
-                                                        <a href="{{ route('hospital.reception.visits.show', $visit->id) }}" class="btn btn-sm btn-info" title="View Details">
-                                                            <i class="bx bx-show"></i>
-                                                        </a>
-                                                    </td>
-                                                </tr>
-                                            @endforeach
-                                        </tbody>
-                                    </table>
-                                </div>
-                            @else
-                                <div class="text-center py-4">
-                                    <i class="bx bx-info-circle text-muted" style="font-size: 3rem;"></i>
-                                    <p class="text-muted mt-2">No active visits at the moment.</p>
-                                </div>
-                            @endif
+                            <div class="table-responsive">
+                                <table id="activeVisitsTable" class="table table-hover w-100">
+                                    <thead>
+                                        <tr>
+                                            <th>#</th>
+                                            <th>Visit #</th>
+                                            <th>Patient</th>
+                                            <th>MRN</th>
+                                            <th>Phone</th>
+                                            <th>Current Department</th>
+                                            <th>Status</th>
+                                            <th>Waiting Time</th>
+                                            <th>Service Time</th>
+                                            <th>Start Time</th>
+                                            <th>Visit Date</th>
+                                            <th>Actions</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody></tbody>
+                                </table>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -310,6 +229,39 @@
 @push('scripts')
 <script>
 $(document).ready(function() {
+    $('#activeVisitsTable').DataTable({
+        processing: true,
+        serverSide: true,
+        ajax: "{{ route('hospital.reception.active-visits.index') }}",
+        columns: [
+            { data: 'DT_RowIndex', name: 'DT_RowIndex', orderable: false, searchable: false },
+            { data: 'visit_number', name: 'visit_number' },
+            { data: 'patient_name', name: 'patient_name' },
+            { data: 'mrn', name: 'mrn' },
+            { data: 'phone', name: 'phone' },
+            { data: 'current_department', name: 'current_department', orderable: false, searchable: false },
+            { data: 'dept_status', name: 'dept_status', orderable: false, searchable: false },
+            { data: 'waiting_time', name: 'waiting_time', orderable: false, searchable: false },
+            { data: 'service_time', name: 'service_time', orderable: false, searchable: false },
+            { data: 'start_time', name: 'start_time', orderable: false, searchable: false },
+            { data: 'visit_date', name: 'visit_date' },
+            { data: 'action', name: 'action', orderable: false, searchable: false },
+        ],
+        dom: '<"row mb-2"<"col-sm-12 col-md-6"l><"col-sm-12 col-md-6"f>>rtip',
+        language: {
+            lengthMenu: 'Show _MENU_ visits',
+            search: '',
+            searchPlaceholder: 'Search visit #, patient, MRN, phone...',
+            processing: '<div class="d-flex justify-content-center py-3"><div class="spinner-border text-primary" role="status"></div></div>',
+            emptyTable: 'No active visits at the moment.',
+            zeroRecords: 'No matching visits found.'
+        },
+        pageLength: 10,
+        lengthMenu: [[10, 25, 50, 100], [10, 25, 50, 100]],
+        responsive: true,
+        order: [[10, 'desc']],
+    });
+
     $('#receptionPatientsTable').DataTable({
         processing: true,
         serverSide: true,

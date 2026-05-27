@@ -36,13 +36,11 @@ class ReceptionController extends Controller
         $companyId = $user->company_id;
         $branchId = session('branch_id') ?? $user->branch_id;
 
-        // Get active visits with their current department status
-        $activeVisits = Visit::with(['patient', 'visitDepartments.department'])
+        $activeVisitsCount = Visit::query()
             ->where('company_id', $companyId)
             ->where('branch_id', $branchId)
             ->whereIn('status', ['pending', 'in_progress'])
-            ->orderBy('visit_date', 'desc')
-            ->get();
+            ->count();
 
         // Get waiting patients by department
         $waitingByDepartment = VisitDepartment::with(['visit.patient', 'department'])
@@ -64,7 +62,124 @@ class ReceptionController extends Controller
             ->get()
             ->groupBy('department.type');
 
-        return view('hospital.reception.index', compact('activeVisits', 'waitingByDepartment', 'inServiceByDepartment'));
+        return view('hospital.reception.index', compact('activeVisitsCount', 'waitingByDepartment', 'inServiceByDepartment'));
+    }
+
+    /**
+     * Active visits (Ajax DataTable)
+     */
+    public function activeVisitsIndex(Request $request)
+    {
+        if (!$request->ajax()) {
+            abort(404);
+        }
+
+        $companyId = Auth::user()->company_id;
+        $branchId = session('branch_id') ?? Auth::user()->branch_id;
+
+        $visits = Visit::query()
+            ->with(['patient', 'visitDepartments.department'])
+            ->where('company_id', $companyId)
+            ->where('branch_id', $branchId)
+            ->whereIn('status', ['pending', 'in_progress'])
+            ->orderBy('visit_date', 'desc');
+
+        return DataTables::of($visits)
+            ->addIndexColumn()
+            ->addColumn('visit_number', fn ($visit) => e($visit->visit_number))
+            ->addColumn('patient_name', fn ($visit) => e($visit->patient?->full_name ?? 'N/A'))
+            ->addColumn('mrn', fn ($visit) => e($visit->patient?->mrn ?? 'N/A'))
+            ->addColumn('phone', fn ($visit) => e($visit->patient?->phone ?? 'N/A'))
+            ->addColumn('current_department', function ($visit) {
+                $currentDept = $visit->visitDepartments
+                    ->whereIn('status', ['waiting', 'in_service'])
+                    ->sortBy('sequence')
+                    ->first();
+
+                if (!$currentDept) {
+                    return '<span class="text-muted">-</span>';
+                }
+
+                $deptName = $currentDept->department?->name ?? 'N/A';
+                $deptType = $currentDept->department?->type ?? '';
+
+                return '<span class="badge bg-info">' . e($deptName) . '</span>'
+                    . '<br><small class="text-muted">' . e(ucfirst(str_replace('_', ' ', $deptType))) . '</small>';
+            })
+            ->addColumn('dept_status', function ($visit) {
+                $currentDept = $visit->visitDepartments
+                    ->whereIn('status', ['waiting', 'in_service'])
+                    ->sortBy('sequence')
+                    ->first();
+
+                $status = $currentDept?->status ?? 'waiting';
+                $label = ucfirst(str_replace('_', ' ', $status));
+                $css = 'status-' . str_replace('_', '-', $status);
+
+                return '<span class="status-badge ' . e($css) . '">' . e($label) . '</span>';
+            })
+            ->addColumn('waiting_time', function ($visit) {
+                $currentDept = $visit->visitDepartments
+                    ->whereIn('status', ['waiting', 'in_service'])
+                    ->sortBy('sequence')
+                    ->first();
+
+                if (!$currentDept) {
+                    return '<span class="text-muted">-</span>';
+                }
+
+                return '<span class="text-warning"><i class="bx bx-time"></i> ' . e($currentDept->waiting_time_formatted ?? '00:00:00') . '</span>';
+            })
+            ->addColumn('service_time', function ($visit) {
+                $currentDept = $visit->visitDepartments
+                    ->whereIn('status', ['waiting', 'in_service'])
+                    ->sortBy('sequence')
+                    ->first();
+
+                if (!$currentDept || !$currentDept->service_started_at) {
+                    return '<span class="text-muted">-</span>';
+                }
+
+                return '<span class="text-primary"><i class="bx bx-time-five"></i> ' . e($currentDept->service_time_formatted ?? '00:00:00') . '</span>';
+            })
+            ->addColumn('start_time', function ($visit) {
+                $currentDept = $visit->visitDepartments
+                    ->whereIn('status', ['waiting', 'in_service'])
+                    ->sortBy('sequence')
+                    ->first();
+
+                if ($currentDept?->service_started_at) {
+                    return '<small>' . e($currentDept->service_started_at->format('H:i')) . '</small>';
+                }
+                if ($currentDept?->waiting_started_at) {
+                    return '<small class="text-muted">' . e($currentDept->waiting_started_at->format('H:i')) . '</small>';
+                }
+
+                return '<span class="text-muted">-</span>';
+            })
+            ->addColumn('visit_date', fn ($visit) => $visit->visit_date ? e($visit->visit_date->format('d M Y, H:i')) : 'N/A')
+            ->addColumn('action', function ($visit) {
+                return '<a href="' . route('hospital.reception.visits.show', $visit->id) . '" class="btn btn-sm btn-info" title="View Details"><i class="bx bx-show"></i></a>';
+            })
+            ->filterColumn('patient_name', function ($query, $keyword) {
+                $query->whereHas('patient', function ($q) use ($keyword) {
+                    $q->where('first_name', 'like', "%{$keyword}%")
+                        ->orWhere('last_name', 'like', "%{$keyword}%")
+                        ->orWhereRaw("CONCAT(first_name, ' ', last_name) like ?", ["%{$keyword}%"]);
+                });
+            })
+            ->filterColumn('mrn', function ($query, $keyword) {
+                $query->whereHas('patient', function ($q) use ($keyword) {
+                    $q->where('mrn', 'like', "%{$keyword}%");
+                });
+            })
+            ->filterColumn('phone', function ($query, $keyword) {
+                $query->whereHas('patient', function ($q) use ($keyword) {
+                    $q->where('phone', 'like', "%{$keyword}%");
+                });
+            })
+            ->rawColumns(['current_department', 'dept_status', 'waiting_time', 'service_time', 'start_time', 'action'])
+            ->make(true);
     }
 
     /**

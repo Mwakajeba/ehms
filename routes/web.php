@@ -868,6 +868,7 @@ Route::get('/hospital', [App\Http\Controllers\Hospital\HospitalController::class
 // Reception Routes
 Route::prefix('hospital/reception')->name('hospital.reception.')->middleware(['auth', 'company.scope', 'require.branch'])->group(function () {
     Route::get('/', [App\Http\Controllers\Hospital\ReceptionController::class, 'index'])->name('index');
+    Route::get('/active-visits', [App\Http\Controllers\Hospital\ReceptionController::class, 'activeVisitsIndex'])->name('active-visits.index');
     
     // Patient routes
     Route::get('/patients', [App\Http\Controllers\Hospital\ReceptionController::class, 'patientsIndex'])->name('patients.index');
