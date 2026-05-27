@@ -3,10 +3,13 @@
 namespace App\Http\Controllers\Hospital;
 
 use App\Http\Controllers\Controller;
+use App\Exports\PatientRegistrationExport;
 use App\Models\Hospital\Patient;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Maatwebsite\Excel\Facades\Excel;
+use Barryvdh\DomPDF\Facade\Pdf;
 
 class HospitalReportController extends Controller
 {
@@ -16,6 +19,37 @@ class HospitalReportController extends Controller
     }
 
     public function patientRegistration(Request $request)
+    {
+        $data = $this->patientRegistrationData($request);
+
+        return view('hospital.reports.patient-registration', $data);
+    }
+
+    public function exportPatientRegistrationExcel(Request $request)
+    {
+        $data = $this->patientRegistrationData($request);
+
+        $filename = 'patient-registration-report-' . $data['startDate']->format('Y-m-d') . '_to_' . $data['endDate']->format('Y-m-d') . '-' . hash('sha256', uniqid()) . '.xlsx';
+
+        return Excel::download(
+            new PatientRegistrationExport($data['patients']),
+            $filename
+        );
+    }
+
+    public function exportPatientRegistrationPdf(Request $request)
+    {
+        $data = $this->patientRegistrationData($request);
+
+        $pdf = Pdf::loadView('hospital.reports.exports.patient-registration-pdf', $data);
+
+        $filename = 'patient-registration-report-' . $data['startDate']->format('Y-m-d') . '_to_' . $data['endDate']->format('Y-m-d') . '-' . hash('sha256', uniqid()) . '.pdf';
+
+        return $pdf->download($filename);
+    }
+
+    /** @return array<string, mixed> */
+    private function patientRegistrationData(Request $request): array
     {
         $user = Auth::user();
         $companyId = $user->company_id;
@@ -49,12 +83,6 @@ class HospitalReportController extends Controller
             ->map->count()
             ->sortDesc();
 
-        return view('hospital.reports.patient-registration', compact(
-            'patients',
-            'summary',
-            'byInsurance',
-            'startDate',
-            'endDate'
-        ));
+        return compact('patients', 'summary', 'byInsurance', 'startDate', 'endDate');
     }
 }

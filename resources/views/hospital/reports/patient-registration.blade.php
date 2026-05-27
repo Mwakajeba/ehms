@@ -127,6 +127,14 @@
                         <span class="badge bg-primary ms-2">{{ number_format($patients->count()) }}</span>
                     </h5>
                     <div class="no-print">
+                        <a class="btn btn-sm btn-outline-success me-1"
+                           href="{{ route('hospital.reports.patient-registration.export.excel', ['start_date' => $startDate->format('Y-m-d'), 'end_date' => $endDate->format('Y-m-d')]) }}">
+                            <i class="bx bx-spreadsheet me-1"></i>Excel
+                        </a>
+                        <a class="btn btn-sm btn-outline-danger me-1"
+                           href="{{ route('hospital.reports.patient-registration.export.pdf', ['start_date' => $startDate->format('Y-m-d'), 'end_date' => $endDate->format('Y-m-d')]) }}">
+                            <i class="bx bxs-file-pdf me-1"></i>PDF
+                        </a>
                         <button type="button" class="btn btn-sm btn-outline-secondary" onclick="window.print()">
                             <i class="bx bx-printer me-1"></i>Print
                         </button>
