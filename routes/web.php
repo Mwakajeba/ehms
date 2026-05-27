@@ -1058,9 +1058,10 @@ Route::prefix('hospital')->name('hospital.')->middleware(['auth', 'company.scope
     })->name('admin.index');
     
     // Hospital Reports
-    Route::get('/reports', function () {
-        return view('hospital.coming-soon', ['module' => 'Hospital Reports', 'description' => 'Clinical, financial, and operational reports']);
-    })->name('reports.index');
+    Route::prefix('reports')->name('reports.')->group(function () {
+        Route::get('/', [App\Http\Controllers\Hospital\HospitalReportController::class, 'index'])->name('index');
+        Route::get('/patient-registration', [App\Http\Controllers\Hospital\HospitalReportController::class, 'patientRegistration'])->name('patient-registration');
+    });
 });
 
 // Payroll Approval Settings
