@@ -77,73 +77,27 @@
                         <div class="card-header">
                             <h5 class="card-title mb-0">
                                 <i class="bx bx-time me-2"></i>Waiting Patients
-                                <span class="badge bg-warning ms-2">{{ $waitingVisits->count() }}</span>
+                                <span class="badge bg-warning ms-2">{{ $stats['waiting'] }}</span>
                             </h5>
                         </div>
                         <div class="card-body">
-                            @if($waitingVisits->count() > 0)
-                                <div class="table-responsive">
-                                    <table class="table table-hover">
-                                        <thead>
-                                            <tr>
-                                                <th>Visit #</th>
-                                                <th>Patient</th>
-                                                <th>MRN</th>
-                                                <th>Age</th>
-                                                <th>Priority</th>
-                                                <th>Waiting Time</th>
-                                                <th>Actions</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody>
-                                            @foreach($waitingVisits as $visit)
-                                                @php
-                                                    $doctorDept = $visit->visitDepartments->firstWhere('department.type', 'doctor');
-                                                    $waitingTime = $doctorDept && $doctorDept->waiting_started_at 
-                                                        ? $doctorDept->waiting_started_at->diffForHumans() 
-                                                        : 'N/A';
-                                                    $priority = $visit->triageVitals->priority ?? 'medium';
-                                                    $priorityColors = [
-                                                        'low' => 'success',
-                                                        'medium' => 'warning',
-                                                        'high' => 'danger',
-                                                        'critical' => 'dark'
-                                                    ];
-                                                    $priorityColor = $priorityColors[$priority] ?? 'secondary';
-                                                @endphp
-                                                <tr>
-                                                    <td><strong>{{ $visit->visit_number }}</strong></td>
-                                                    <td>{{ $visit->patient->full_name }}</td>
-                                                    <td>{{ $visit->patient->mrn }}</td>
-                                                    <td>{{ $visit->patient->age ? $visit->patient->age . ' years' : 'N/A' }}</td>
-                                                    <td>
-                                                        <span class="badge bg-{{ $priorityColor }}">
-                                                            {{ ucfirst($priority) }}
-                                                        </span>
-                                                    </td>
-                                                    <td>{{ $waitingTime }}</td>
-                                                    <td>
-                                                        <form action="{{ route('hospital.doctor.start-service', $visit->id) }}" method="POST" class="d-inline">
-                                                            @csrf
-                                                            <button type="submit" class="btn btn-sm btn-primary">
-                                                                <i class="bx bx-play me-1"></i>Start Consultation
-                                                            </button>
-                                                        </form>
-                                                        <a href="{{ route('hospital.doctor.create', $visit->id) }}" class="btn btn-sm btn-info">
-                                                            <i class="bx bx-plus me-1"></i>Record Consultation
-                                                        </a>
-                                                    </td>
-                                                </tr>
-                                            @endforeach
-                                        </tbody>
-                                    </table>
-                                </div>
-                            @else
-                                <div class="text-center py-4">
-                                    <i class="bx bx-check-circle text-success" style="font-size: 3rem;"></i>
-                                    <p class="text-muted mt-2">No patients waiting for consultation.</p>
-                                </div>
-                            @endif
+                            <div class="table-responsive">
+                                <table id="doctorWaitingTable" class="table table-hover w-100">
+                                    <thead>
+                                        <tr>
+                                            <th>#</th>
+                                            <th>Visit #</th>
+                                            <th>Patient</th>
+                                            <th>MRN</th>
+                                            <th>Age</th>
+                                            <th>Priority</th>
+                                            <th>Waiting Time</th>
+                                            <th>Actions</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody></tbody>
+                                </table>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -156,61 +110,27 @@
                         <div class="card-header">
                             <h5 class="card-title mb-0">
                                 <i class="bx bx-user-check me-2"></i>In Service
-                                <span class="badge bg-primary ms-2">{{ $inServiceVisits->count() }}</span>
+                                <span class="badge bg-primary ms-2">{{ $stats['in_service'] }}</span>
                             </h5>
                         </div>
                         <div class="card-body">
-                            @if($inServiceVisits->count() > 0)
-                                <div class="table-responsive">
-                                    <table class="table table-hover">
-                                        <thead>
-                                            <tr>
-                                                <th>Visit #</th>
-                                                <th>Patient</th>
-                                                <th>MRN</th>
-                                                <th>Age</th>
-                                                <th>Service Started</th>
-                                                <th>Service Time</th>
-                                                <th>Actions</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody>
-                                            @foreach($inServiceVisits as $visit)
-                                                @php
-                                                    $doctorDept = $visit->visitDepartments->firstWhere('department.type', 'doctor');
-                                                    $serviceTime = $doctorDept && $doctorDept->service_started_at 
-                                                        ? $doctorDept->service_started_at->diffForHumans() 
-                                                        : 'N/A';
-                                                @endphp
-                                                <tr>
-                                                    <td><strong>{{ $visit->visit_number }}</strong></td>
-                                                    <td>{{ $visit->patient->full_name }}</td>
-                                                    <td>{{ $visit->patient->mrn }}</td>
-                                                    <td>{{ $visit->patient->age ? $visit->patient->age . ' years' : 'N/A' }}</td>
-                                                    <td>{{ $doctorDept && $doctorDept->service_started_at ? $doctorDept->service_started_at->format('H:i') : 'N/A' }}</td>
-                                                    <td>{{ $serviceTime }}</td>
-                                                    <td>
-                                                        @if(!$visit->consultation)
-                                                            <a href="{{ route('hospital.doctor.create', $visit->id) }}" class="btn btn-sm btn-info">
-                                                                <i class="bx bx-plus me-1"></i>Record Consultation
-                                                            </a>
-                                                        @else
-                                                            <a href="{{ route('hospital.doctor.show', $visit->id) }}" class="btn btn-sm btn-success">
-                                                                <i class="bx bx-show me-1"></i>View Consultation
-                                                            </a>
-                                                        @endif
-                                                    </td>
-                                                </tr>
-                                            @endforeach
-                                        </tbody>
-                                    </table>
-                                </div>
-                            @else
-                                <div class="text-center py-4">
-                                    <i class="bx bx-info-circle text-muted" style="font-size: 3rem;"></i>
-                                    <p class="text-muted mt-2">No patients currently in service.</p>
-                                </div>
-                            @endif
+                            <div class="table-responsive">
+                                <table id="doctorInServiceTable" class="table table-hover w-100">
+                                    <thead>
+                                        <tr>
+                                            <th>#</th>
+                                            <th>Visit #</th>
+                                            <th>Patient</th>
+                                            <th>MRN</th>
+                                            <th>Age</th>
+                                            <th>Service Started</th>
+                                            <th>Service Time</th>
+                                            <th>Actions</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody></tbody>
+                                </table>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -218,3 +138,70 @@
         </div>
     </div>
 @endsection
+
+@push('scripts')
+<script>
+$(document).ready(function() {
+    const dtLanguage = {
+        lengthMenu: 'Show _MENU_ entries',
+        search: '',
+        searchPlaceholder: 'Search visit #, patient, MRN...',
+        processing: '<div class="d-flex justify-content-center py-3"><div class="spinner-border text-primary" role="status"></div></div>',
+        emptyTable: 'No records found.',
+        zeroRecords: 'No matching records found.'
+    };
+
+    $('#doctorWaitingTable').DataTable({
+        processing: true,
+        serverSide: true,
+        ajax: "{{ route('hospital.doctor.waiting-visits.index') }}",
+        columns: [
+            { data: 'DT_RowIndex', name: 'DT_RowIndex', orderable: false, searchable: false },
+            { data: 'visit_number', name: 'visit_number' },
+            { data: 'patient_name', name: 'patient_name' },
+            { data: 'mrn', name: 'mrn' },
+            { data: 'age', name: 'age', orderable: false, searchable: false },
+            { data: 'priority', name: 'priority', orderable: false, searchable: false },
+            { data: 'waiting_time', name: 'waiting_time', orderable: false, searchable: false },
+            { data: 'action', name: 'action', orderable: false, searchable: false },
+        ],
+        dom: '<"row mb-2"<"col-sm-12 col-md-6"l><"col-sm-12 col-md-6"f>>rtip',
+        language: {
+            ...dtLanguage,
+            emptyTable: 'No patients waiting for consultation.',
+            zeroRecords: 'No matching patients found.'
+        },
+        pageLength: 10,
+        lengthMenu: [[10, 25, 50, 100], [10, 25, 50, 100]],
+        responsive: true,
+        order: [[1, 'asc']],
+    });
+
+    $('#doctorInServiceTable').DataTable({
+        processing: true,
+        serverSide: true,
+        ajax: "{{ route('hospital.doctor.in-service-visits.index') }}",
+        columns: [
+            { data: 'DT_RowIndex', name: 'DT_RowIndex', orderable: false, searchable: false },
+            { data: 'visit_number', name: 'visit_number' },
+            { data: 'patient_name', name: 'patient_name' },
+            { data: 'mrn', name: 'mrn' },
+            { data: 'age', name: 'age', orderable: false, searchable: false },
+            { data: 'service_started', name: 'service_started', orderable: false, searchable: false },
+            { data: 'service_time', name: 'service_time', orderable: false, searchable: false },
+            { data: 'action', name: 'action', orderable: false, searchable: false },
+        ],
+        dom: '<"row mb-2"<"col-sm-12 col-md-6"l><"col-sm-12 col-md-6"f>>rtip',
+        language: {
+            ...dtLanguage,
+            emptyTable: 'No patients currently in service.',
+            zeroRecords: 'No matching patients found.'
+        },
+        pageLength: 10,
+        lengthMenu: [[10, 25, 50, 100], [10, 25, 50, 100]],
+        responsive: true,
+        order: [[1, 'asc']],
+    });
+});
+</script>
+@endpush
