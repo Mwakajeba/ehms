@@ -110,6 +110,7 @@ class HospitalReportController extends Controller
                 $data['rows'],
                 $data['audiometryItems'],
                 $data['deviceItems'],
+                $data['totals'],
                 $data['startDate'],
                 $data['endDate'],
                 $data['periodLabel']

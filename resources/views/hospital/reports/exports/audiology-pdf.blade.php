@@ -81,6 +81,27 @@
                 </tr>
             @endforelse
         </tbody>
+        @if(count($rows) > 0)
+            <tfoot>
+                <tr style="font-weight: bold; background: #eee;">
+                    <td colspan="3" style="text-align: right;">TOTAL ({{ $totals['visit_count'] }})</td>
+                    <td></td>
+                    <td></td>
+                    @forelse($audiometryItems as $item)
+                        <td class="amount">{{ \App\Services\Hospital\AudiologyReportService::formatTotalAmount($totals['service_totals'][$item->id] ?? 0) }}</td>
+                    @empty
+                        <td></td>
+                    @endforelse
+                    <td></td>
+                    @forelse($deviceItems as $item)
+                        <td class="amount">{{ \App\Services\Hospital\AudiologyReportService::formatTotalAmount($totals['product_totals'][$item->id] ?? 0) }}</td>
+                    @empty
+                        <td></td>
+                    @endforelse
+                    <td class="amount">{{ \App\Services\Hospital\AudiologyReportService::formatTotalAmount($totals['grand_total']) }}</td>
+                </tr>
+            </tfoot>
+        @endif
     </table>
 </body>
 </html>

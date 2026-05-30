@@ -18,7 +18,8 @@ class AudiologyReportService
      *     deviceItems: Collection,
      *     startDate: Carbon,
      *     endDate: Carbon,
-     *     periodLabel: string
+     *     periodLabel: string,
+     *     totals: array{service_totals: array<int, float>, product_totals: array<int, float>, grand_total: float, visit_count: int}
      * }
      */
     public function build(int $companyId, ?int $branchId, Carbon $startDate, Carbon $endDate): array
@@ -92,9 +93,42 @@ class AudiologyReportService
             'rows' => $rows,
             'audiometryItems' => $audiometryItems,
             'deviceItems' => $deviceItems,
+            'totals' => $this->computeTotals($rows, $audiometryItems, $deviceItems),
             'startDate' => $startDate,
             'endDate' => $endDate,
             'periodLabel' => strtoupper($periodLabel),
+        ];
+    }
+
+    /**
+     * @param  array<int, array<string, mixed>>  $rows
+     * @param  Collection<int, Item>  $audiometryItems
+     * @param  Collection<int, Item>  $deviceItems
+     * @return array{service_totals: array<int, float>, product_totals: array<int, float>, grand_total: float, visit_count: int}
+     */
+    private function computeTotals(array $rows, Collection $audiometryItems, Collection $deviceItems): array
+    {
+        $serviceTotals = $audiometryItems->mapWithKeys(fn (Item $item) => [$item->id => 0.0])->all();
+        $productTotals = $deviceItems->mapWithKeys(fn (Item $item) => [$item->id => 0.0])->all();
+
+        foreach ($rows as $row) {
+            foreach ($row['service_amounts'] as $itemId => $amount) {
+                if ($amount !== null && $amount > 0) {
+                    $serviceTotals[$itemId] = ($serviceTotals[$itemId] ?? 0) + (float) $amount;
+                }
+            }
+            foreach ($row['product_amounts'] as $itemId => $amount) {
+                if ($amount !== null && $amount > 0) {
+                    $productTotals[$itemId] = ($productTotals[$itemId] ?? 0) + (float) $amount;
+                }
+            }
+        }
+
+        return [
+            'service_totals' => $serviceTotals,
+            'product_totals' => $productTotals,
+            'grand_total' => (float) array_sum($serviceTotals) + (float) array_sum($productTotals),
+            'visit_count' => count($rows),
         ];
     }
 
@@ -218,5 +252,10 @@ class AudiologyReportService
     public static function amountForItem(array $amounts, int $itemId): string
     {
         return self::formatAmount($amounts[$itemId] ?? null);
+    }
+
+    public static function formatTotalAmount(float $amount): string
+    {
+        return number_format($amount, 0, '.', ',');
     }
 }
