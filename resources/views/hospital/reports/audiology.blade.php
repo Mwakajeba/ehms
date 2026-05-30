@@ -88,6 +88,7 @@
                             'rows' => $rows,
                             'audiometryItems' => $audiometryItems,
                             'deviceItems' => $deviceItems,
+                            'totals' => $totals,
                         ])
                     </div>
                 </div>
