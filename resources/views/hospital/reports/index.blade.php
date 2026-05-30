@@ -21,6 +21,22 @@
 
             <div class="row">
                 <div class="col-md-6 col-lg-4 mb-4">
+                    <div class="card h-100 border-dark">
+                        <div class="card-body text-center d-flex flex-column">
+                            <div class="mb-3">
+                                <i class="bx bx-volume-full text-dark" style="font-size: 3rem;"></i>
+                            </div>
+                            <h5 class="card-title">Audiology Report</h5>
+                            <p class="card-text text-muted flex-grow-1">
+                                Monthly-style audiology register by visiting date: payment mode, all service &amp; product inventory columns, and contact.
+                            </p>
+                            <a href="{{ route('hospital.reports.audiology') }}" class="btn btn-dark mt-auto">
+                                <i class="bx bx-bar-chart-alt-2 me-1"></i>Open Report
+                            </a>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-6 col-lg-4 mb-4">
                     <div class="card h-100 border-primary">
                         <div class="card-body text-center d-flex flex-column">
                             <div class="mb-3">

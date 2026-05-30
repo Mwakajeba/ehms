@@ -3,8 +3,10 @@
 namespace App\Http\Controllers\Hospital;
 
 use App\Http\Controllers\Controller;
+use App\Exports\AudiologyReportExport;
 use App\Exports\PatientRegistrationExport;
 use App\Models\Hospital\Patient;
+use App\Services\Hospital\AudiologyReportService;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -13,6 +15,10 @@ use Barryvdh\DomPDF\Facade\Pdf;
 
 class HospitalReportController extends Controller
 {
+    public function __construct(
+        private AudiologyReportService $audiologyReportService
+    ) {}
+
     public function index()
     {
         return view('hospital.reports.index');
@@ -84,5 +90,61 @@ class HospitalReportController extends Controller
             ->sortDesc();
 
         return compact('patients', 'summary', 'byInsurance', 'startDate', 'endDate');
+    }
+
+    public function audiology(Request $request)
+    {
+        $data = $this->audiologyReportData($request);
+
+        return view('hospital.reports.audiology', $data);
+    }
+
+    public function exportAudiologyExcel(Request $request)
+    {
+        $data = $this->audiologyReportData($request);
+
+        $filename = 'audiology-report-' . $data['startDate']->format('Y-m-d') . '_to_' . $data['endDate']->format('Y-m-d') . '.xlsx';
+
+        return Excel::download(
+            new AudiologyReportExport(
+                $data['rows'],
+                $data['audiometryItems'],
+                $data['deviceItems'],
+                $data['startDate'],
+                $data['endDate'],
+                $data['periodLabel']
+            ),
+            $filename
+        );
+    }
+
+    public function exportAudiologyPdf(Request $request)
+    {
+        $data = $this->audiologyReportData($request);
+
+        $pdf = Pdf::loadView('hospital.reports.exports.audiology-pdf', $data)
+            ->setPaper('a4', 'landscape');
+
+        $filename = 'audiology-report-' . $data['startDate']->format('Y-m-d') . '_to_' . $data['endDate']->format('Y-m-d') . '.pdf';
+
+        return $pdf->download($filename);
+    }
+
+    /** @return array<string, mixed> */
+    private function audiologyReportData(Request $request): array
+    {
+        $user = Auth::user();
+        $companyId = $user->company_id;
+        $branchId = session('branch_id') ?? $user->branch_id;
+
+        $validated = $request->validate([
+            'start_date' => 'nullable|date',
+            'end_date' => 'nullable|date|after_or_equal:start_date',
+        ]);
+
+        $startDate = Carbon::parse($validated['start_date'] ?? now()->startOfMonth()->toDateString())->startOfDay();
+        $endDate = Carbon::parse($validated['end_date'] ?? now()->toDateString())->endOfDay();
+
+        return $this->audiologyReportService->build($companyId, $branchId, $startDate, $endDate);
     }
 }
