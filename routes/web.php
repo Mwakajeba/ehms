@@ -1063,6 +1063,9 @@ Route::prefix('hospital')->name('hospital.')->middleware(['auth', 'company.scope
         Route::get('/patient-registration', [App\Http\Controllers\Hospital\HospitalReportController::class, 'patientRegistration'])->name('patient-registration');
         Route::get('/patient-registration/export/excel', [App\Http\Controllers\Hospital\HospitalReportController::class, 'exportPatientRegistrationExcel'])->name('patient-registration.export.excel');
         Route::get('/patient-registration/export/pdf', [App\Http\Controllers\Hospital\HospitalReportController::class, 'exportPatientRegistrationPdf'])->name('patient-registration.export.pdf');
+        Route::get('/audiology', [App\Http\Controllers\Hospital\HospitalReportController::class, 'audiology'])->name('audiology');
+        Route::get('/audiology/export/excel', [App\Http\Controllers\Hospital\HospitalReportController::class, 'exportAudiologyExcel'])->name('audiology.export.excel');
+        Route::get('/audiology/export/pdf', [App\Http\Controllers\Hospital\HospitalReportController::class, 'exportAudiologyPdf'])->name('audiology.export.pdf');
     });
 });
 
