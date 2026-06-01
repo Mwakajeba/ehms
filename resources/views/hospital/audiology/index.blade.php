@@ -68,13 +68,17 @@
                 <div class="col-12 mb-4">
                     <div class="card">
                         <div class="card-header bg-dark text-white">
-                            <h5 class="mb-0"><i class="bx bx-time me-2"></i>Waiting Queue</h5>
+                            <h5 class="mb-0">
+                                <i class="bx bx-time me-2"></i>Waiting Queue
+                                <span class="badge bg-light text-dark ms-2">{{ $stats['waiting'] ?? 0 }}</span>
+                            </h5>
                         </div>
                         <div class="card-body">
                             <div class="table-responsive">
-                                <table class="table table-hover align-middle">
+                                <table id="audiologyWaitingTable" class="table table-hover align-middle w-100">
                                     <thead>
                                         <tr>
+                                            <th>#</th>
                                             <th>Visit #</th>
                                             <th>Patient</th>
                                             <th>MRN</th>
@@ -82,31 +86,7 @@
                                             <th>Actions</th>
                                         </tr>
                                     </thead>
-                                    <tbody>
-                                        @forelse($waitingVisits as $visit)
-                                            <tr>
-                                                <td><strong>{{ $visit->visit_number }}</strong></td>
-                                                <td>{{ $visit->patient->full_name ?? 'N/A' }}</td>
-                                                <td>{{ $visit->patient->mrn ?? 'N/A' }}</td>
-                                                <td>{{ $visit->visit_date ? $visit->visit_date->format('d M Y, H:i') : 'N/A' }}</td>
-                                                <td>
-                                                    <form action="{{ route('hospital.audiology.start-service', $visit->id) }}" method="POST" class="d-inline">
-                                                        @csrf
-                                                        <button type="submit" class="btn btn-sm btn-outline-info">
-                                                            <i class="bx bx-play me-1"></i>Start
-                                                        </button>
-                                                    </form>
-                                                    <a href="{{ route('hospital.audiology.create', $visit->id) }}" class="btn btn-sm btn-dark">
-                                                        <i class="bx bx-edit me-1"></i>Enter Results
-                                                    </a>
-                                                </td>
-                                            </tr>
-                                        @empty
-                                            <tr>
-                                                <td colspan="5" class="text-center text-muted py-4">No visits waiting for audiology.</td>
-                                            </tr>
-                                        @endforelse
-                                    </tbody>
+                                    <tbody></tbody>
                                 </table>
                             </div>
                         </div>
@@ -116,13 +96,17 @@
                 <div class="col-12 mb-4">
                     <div class="card">
                         <div class="card-header bg-info text-white">
-                            <h5 class="mb-0"><i class="bx bx-loader-circle me-2"></i>In Service</h5>
+                            <h5 class="mb-0">
+                                <i class="bx bx-loader-circle me-2"></i>In Service
+                                <span class="badge bg-light text-dark ms-2">{{ $stats['in_service'] ?? 0 }}</span>
+                            </h5>
                         </div>
                         <div class="card-body">
                             <div class="table-responsive">
-                                <table class="table table-hover align-middle">
+                                <table id="audiologyInServiceTable" class="table table-hover align-middle w-100">
                                     <thead>
                                         <tr>
+                                            <th>#</th>
                                             <th>Visit #</th>
                                             <th>Patient</th>
                                             <th>MRN</th>
@@ -131,26 +115,7 @@
                                             <th>Actions</th>
                                         </tr>
                                     </thead>
-                                    <tbody>
-                                        @forelse($inServiceVisits as $visit)
-                                            <tr>
-                                                <td><strong>{{ $visit->visit_number }}</strong></td>
-                                                <td>{{ $visit->patient->full_name ?? 'N/A' }}</td>
-                                                <td>{{ $visit->patient->mrn ?? 'N/A' }}</td>
-                                                <td>{{ $visit->visit_date ? $visit->visit_date->format('d M Y, H:i') : 'N/A' }}</td>
-                                                <td>{{ $visit->audiologyResults ? $visit->audiologyResults->count() : 0 }}</td>
-                                                <td>
-                                                    <a href="{{ route('hospital.audiology.create', $visit->id) }}" class="btn btn-sm btn-info">
-                                                        <i class="bx bx-edit me-1"></i>Update Results
-                                                    </a>
-                                                </td>
-                                            </tr>
-                                        @empty
-                                            <tr>
-                                                <td colspan="6" class="text-center text-muted py-4">No visits currently in service.</td>
-                                            </tr>
-                                        @endforelse
-                                    </tbody>
+                                    <tbody></tbody>
                                 </table>
                             </div>
                         </div>
@@ -207,4 +172,68 @@
         </div>
     </div>
 @endsection
+
+@push('scripts')
+<script>
+$(document).ready(function() {
+    const dtLanguage = {
+        lengthMenu: 'Show _MENU_ entries',
+        search: '',
+        searchPlaceholder: 'Search visit #, patient, MRN...',
+        processing: '<div class="d-flex justify-content-center py-3"><div class="spinner-border text-dark" role="status"></div></div>',
+        emptyTable: 'No records found.',
+        zeroRecords: 'No matching records found.'
+    };
+
+    $('#audiologyWaitingTable').DataTable({
+        processing: true,
+        serverSide: true,
+        ajax: "{{ route('hospital.audiology.waiting-visits.index') }}",
+        columns: [
+            { data: 'DT_RowIndex', name: 'DT_RowIndex', orderable: false, searchable: false },
+            { data: 'visit_number', name: 'visit_number' },
+            { data: 'patient_name', name: 'patient_name' },
+            { data: 'mrn', name: 'mrn' },
+            { data: 'visit_date', name: 'visit_date' },
+            { data: 'action', name: 'action', orderable: false, searchable: false },
+        ],
+        dom: '<"row mb-2"<"col-sm-12 col-md-6"l><"col-sm-12 col-md-6"f>>rtip',
+        language: {
+            ...dtLanguage,
+            emptyTable: 'No visits waiting for audiology.',
+            zeroRecords: 'No matching visits found.'
+        },
+        pageLength: 10,
+        lengthMenu: [[10, 25, 50, 100], [10, 25, 50, 100]],
+        responsive: true,
+        order: [[1, 'asc']],
+    });
+
+    $('#audiologyInServiceTable').DataTable({
+        processing: true,
+        serverSide: true,
+        ajax: "{{ route('hospital.audiology.in-service-visits.index') }}",
+        columns: [
+            { data: 'DT_RowIndex', name: 'DT_RowIndex', orderable: false, searchable: false },
+            { data: 'visit_number', name: 'visit_number' },
+            { data: 'patient_name', name: 'patient_name' },
+            { data: 'mrn', name: 'mrn' },
+            { data: 'visit_date', name: 'visit_date' },
+            { data: 'results_count', name: 'audiology_results_count', orderable: false, searchable: false },
+            { data: 'action', name: 'action', orderable: false, searchable: false },
+        ],
+        dom: '<"row mb-2"<"col-sm-12 col-md-6"l><"col-sm-12 col-md-6"f>>rtip',
+        language: {
+            ...dtLanguage,
+            emptyTable: 'No visits currently in service.',
+            zeroRecords: 'No matching visits found.'
+        },
+        pageLength: 10,
+        lengthMenu: [[10, 25, 50, 100], [10, 25, 50, 100]],
+        responsive: true,
+        order: [[1, 'asc']],
+    });
+});
+</script>
+@endpush
 
