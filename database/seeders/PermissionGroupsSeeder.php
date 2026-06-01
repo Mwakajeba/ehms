@@ -822,6 +822,11 @@ class PermissionGroupsSeeder extends Seeder
                 'edit ultrasound result',
                 'view ultrasound result',
                 'mark ultrasound result ready',
+                // Audiology
+                'view audiology',
+                'create audiology result',
+                'view audiology result',
+                'mark audiology result ready',
                 // Pharmacy
                 'view pharmacy',
                 'create dispensation',
