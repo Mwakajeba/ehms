@@ -253,14 +253,19 @@
 @endsection
 
 @push('scripts')
+@php
+    $serviceOptionsForJs = $services->map(function ($service) {
+        return [
+            'id' => $service->id,
+            'name' => $service->name,
+            'unit_price' => (float) $service->unit_price,
+        ];
+    })->values();
+@endphp
 <script>
     let serviceCount = 1;
 
-    const serviceOptionsHtml = @json($services->map(fn ($s) => [
-        'id' => $s->id,
-        'name' => $s->name,
-        'unit_price' => (float) $s->unit_price,
-    ])->values());
+    const serviceOptionsHtml = @json($serviceOptionsForJs);
 
     function buildServiceSelectOptions(selectedId = '') {
         let html = '<option value="">Select Service</option>';
