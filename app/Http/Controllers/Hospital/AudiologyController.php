@@ -13,6 +13,7 @@ use App\Services\Hospital\VisitBillingClearance;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
+use Yajra\DataTables\Facades\DataTables;
 
 class AudiologyController extends Controller
 {
@@ -22,8 +23,124 @@ class AudiologyController extends Controller
         $companyId = $user->company_id;
         $branchId = session('branch_id') ?? $user->branch_id;
 
-        $waitingVisits = VisitBillingClearance::applyClearedBillOrPaidInvoice(
-            Visit::with(['patient', 'visitDepartments.department', 'bills'])
+        $readyResults = AudiologyResult::with(['patient', 'visit'])
+            ->where('company_id', $companyId)
+            ->where('branch_id', $branchId)
+            ->where('result_status', 'ready')
+            ->orderBy('completed_at', 'desc')
+            ->get();
+
+        $stats = [
+            'waiting' => $this->audiologyWaitingVisitsQuery($companyId, $branchId)->count(),
+            'in_service' => $this->audiologyInServiceVisitsQuery($companyId, $branchId)->count(),
+            'ready_results' => $readyResults->count(),
+            'completed_today' => AudiologyResult::where('company_id', $companyId)
+                ->where('branch_id', $branchId)
+                ->whereDate('completed_at', today())
+                ->count(),
+        ];
+
+        return view('hospital.audiology.index', compact('readyResults', 'stats'));
+    }
+
+    /**
+     * Waiting queue (Ajax DataTable)
+     */
+    public function waitingVisitsIndex(Request $request)
+    {
+        if (!$request->ajax()) {
+            abort(404);
+        }
+
+        $user = Auth::user();
+        $companyId = $user->company_id;
+        $branchId = session('branch_id') ?? $user->branch_id;
+
+        $visits = $this->audiologyWaitingVisitsQuery($companyId, $branchId)->orderBy('visit_date', 'asc');
+
+        return DataTables::of($visits)
+            ->addIndexColumn()
+            ->addColumn('visit_number', fn ($visit) => '<strong>' . e($visit->visit_number) . '</strong>')
+            ->addColumn('patient_name', fn ($visit) => e($visit->patient?->full_name ?? 'N/A'))
+            ->addColumn('mrn', fn ($visit) => e($visit->patient?->mrn ?? 'N/A'))
+            ->addColumn('visit_date', fn ($visit) => $visit->visit_date
+                ? e($visit->visit_date->format('d M Y, H:i'))
+                : 'N/A')
+            ->addColumn('action', function ($visit) {
+                $startForm = '<form action="' . route('hospital.audiology.start-service', $visit->id) . '" method="POST" class="d-inline">'
+                    . csrf_field()
+                    . '<button type="submit" class="btn btn-sm btn-outline-info"><i class="bx bx-play me-1"></i>Start</button>'
+                    . '</form>';
+                $resultsBtn = '<a href="' . route('hospital.audiology.create', $visit->id) . '" class="btn btn-sm btn-dark ms-1">'
+                    . '<i class="bx bx-edit me-1"></i>Enter Results</a>';
+
+                return $startForm . $resultsBtn;
+            })
+            ->filterColumn('patient_name', function ($query, $keyword) {
+                $query->whereHas('patient', function ($q) use ($keyword) {
+                    $q->where('first_name', 'like', "%{$keyword}%")
+                        ->orWhere('last_name', 'like', "%{$keyword}%")
+                        ->orWhereRaw("CONCAT(first_name, ' ', last_name) like ?", ["%{$keyword}%"]);
+                });
+            })
+            ->filterColumn('mrn', function ($query, $keyword) {
+                $query->whereHas('patient', function ($q) use ($keyword) {
+                    $q->where('mrn', 'like', "%{$keyword}%");
+                });
+            })
+            ->rawColumns(['visit_number', 'action'])
+            ->make(true);
+    }
+
+    /**
+     * In service (Ajax DataTable)
+     */
+    public function inServiceVisitsIndex(Request $request)
+    {
+        if (!$request->ajax()) {
+            abort(404);
+        }
+
+        $user = Auth::user();
+        $companyId = $user->company_id;
+        $branchId = session('branch_id') ?? $user->branch_id;
+
+        $visits = $this->audiologyInServiceVisitsQuery($companyId, $branchId)->orderBy('visit_date', 'asc');
+
+        return DataTables::of($visits)
+            ->addIndexColumn()
+            ->addColumn('visit_number', fn ($visit) => '<strong>' . e($visit->visit_number) . '</strong>')
+            ->addColumn('patient_name', fn ($visit) => e($visit->patient?->full_name ?? 'N/A'))
+            ->addColumn('mrn', fn ($visit) => e($visit->patient?->mrn ?? 'N/A'))
+            ->addColumn('visit_date', fn ($visit) => $visit->visit_date
+                ? e($visit->visit_date->format('d M Y, H:i'))
+                : 'N/A')
+            ->addColumn('results_count', fn ($visit) => (string) ($visit->audiology_results_count ?? $visit->audiologyResults?->count() ?? 0))
+            ->addColumn('action', function ($visit) {
+                return '<a href="' . route('hospital.audiology.create', $visit->id) . '" class="btn btn-sm btn-info">'
+                    . '<i class="bx bx-edit me-1"></i>Update Results</a>';
+            })
+            ->filterColumn('patient_name', function ($query, $keyword) {
+                $query->whereHas('patient', function ($q) use ($keyword) {
+                    $q->where('first_name', 'like', "%{$keyword}%")
+                        ->orWhere('last_name', 'like', "%{$keyword}%")
+                        ->orWhereRaw("CONCAT(first_name, ' ', last_name) like ?", ["%{$keyword}%"]);
+                });
+            })
+            ->filterColumn('mrn', function ($query, $keyword) {
+                $query->whereHas('patient', function ($q) use ($keyword) {
+                    $q->where('mrn', 'like', "%{$keyword}%");
+                });
+            })
+            ->rawColumns(['visit_number', 'action'])
+            ->make(true);
+    }
+
+    protected function audiologyWaitingVisitsQuery(int $companyId, int $branchId)
+    {
+        return VisitBillingClearance::applyClearedBillOrPaidInvoice(
+            Visit::query()
+                ->with(['patient', 'visitDepartments.department', 'bills'])
                 ->where('company_id', $companyId)
                 ->where('branch_id', $branchId)
                 ->whereHas('visitDepartments', function ($q) {
@@ -33,39 +150,21 @@ class AudiologyController extends Controller
                 }),
             $companyId,
             $branchId
-        )
-            ->orderBy('visit_date', 'asc')
-            ->get();
+        );
+    }
 
-        $inServiceVisits = Visit::with(['patient', 'visitDepartments.department', 'audiologyResults'])
+    protected function audiologyInServiceVisitsQuery(int $companyId, int $branchId)
+    {
+        return Visit::query()
+            ->with(['patient', 'visitDepartments.department'])
+            ->withCount('audiologyResults')
             ->where('company_id', $companyId)
             ->where('branch_id', $branchId)
             ->whereHas('visitDepartments', function ($q) {
                 $q->whereHas('department', function ($query) {
                     $query->where('type', 'audiology');
                 })->where('status', 'in_service');
-            })
-            ->orderBy('visit_date', 'asc')
-            ->get();
-
-        $readyResults = AudiologyResult::with(['patient', 'visit'])
-            ->where('company_id', $companyId)
-            ->where('branch_id', $branchId)
-            ->where('result_status', 'ready')
-            ->orderBy('completed_at', 'desc')
-            ->get();
-
-        $stats = [
-            'waiting' => $waitingVisits->count(),
-            'in_service' => $inServiceVisits->count(),
-            'ready_results' => $readyResults->count(),
-            'completed_today' => AudiologyResult::where('company_id', $companyId)
-                ->where('branch_id', $branchId)
-                ->whereDate('completed_at', today())
-                ->count(),
-        ];
-
-        return view('hospital.audiology.index', compact('waitingVisits', 'inServiceVisits', 'readyResults', 'stats'));
+            });
     }
 
     public function create($visitId)

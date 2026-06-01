@@ -173,33 +173,48 @@
                                     <div class="alert alert-info">
                                         <i class="bx bx-info-circle me-2"></i>
                                         Select services to create a pre-bill. Patient will need to clear the bill at Cashier before proceeding to departments.
+                                        You can edit the <strong>unit price</strong> if the patient pays less than the amount configured on the service item.
+                                    </div>
+                                    <div class="row text-muted small fw-bold mb-1 d-none d-md-flex">
+                                        <div class="col-md-5">Service</div>
+                                        <div class="col-md-2">Qty</div>
+                                        <div class="col-md-2">Unit price (TZS)</div>
+                                        <div class="col-md-3">Line total</div>
                                     </div>
                                     <div id="servicesContainer">
-                                        <div class="service-item">
-                                            <div class="row align-items-center">
-                                                <div class="col-md-6">
-                                                    <select class="form-select service-select" name="services[0][service_id]" onchange="updateServicePrice(this, 0)">
+                                        <div class="service-item" data-index="0">
+                                            <div class="row align-items-center g-2">
+                                                <div class="col-md-5">
+                                                    <select class="form-select service-select" name="services[0][service_id]" onchange="updateServicePrice(this)">
                                                         <option value="">Select Service</option>
                                                         @foreach($services as $service)
-                                                            <option value="{{ $service->id }}" 
+                                                            <option value="{{ $service->id }}"
                                                                     data-price="{{ $service->unit_price }}"
-                                                                    data-name="{{ $service->name }}">
-                                                                {{ $service->name }} - {{ number_format($service->unit_price, 2) }} TZS
+                                                                    data-name="{{ $service->name }}"
+                                                                    {{ old('services.0.service_id') == $service->id ? 'selected' : '' }}>
+                                                                {{ $service->name }} ({{ number_format($service->unit_price, 2) }} TZS)
                                                             </option>
                                                         @endforeach
                                                     </select>
                                                 </div>
-                                                <div class="col-md-3">
-                                                    <input type="number" class="form-control quantity-input" 
-                                                           name="services[0][quantity]" 
-                                                           value="1" min="1" 
-                                                           onchange="calculateServiceTotal(0)">
+                                                <div class="col-md-2">
+                                                    <input type="number" class="form-control quantity-input"
+                                                           name="services[0][quantity]"
+                                                           value="{{ old('services.0.quantity', 1) }}" min="1"
+                                                           oninput="calculateServiceTotalFromRow(this.closest('.service-item'))">
+                                                </div>
+                                                <div class="col-md-2">
+                                                    <input type="number" class="form-control unit-price-input"
+                                                           name="services[0][unit_price]"
+                                                           value="{{ old('services.0.unit_price', '') }}"
+                                                           min="0" step="0.01" placeholder="0.00"
+                                                           oninput="calculateServiceTotalFromRow(this.closest('.service-item'))">
                                                 </div>
                                                 <div class="col-md-3">
                                                     <div class="input-group">
-                                                        <input type="text" class="form-control total-display" 
+                                                        <input type="text" class="form-control total-display"
                                                                readonly value="0.00">
-                                                        <button type="button" class="btn btn-danger" onclick="removeService(0)" style="display:none;">
+                                                        <button type="button" class="btn btn-danger btn-remove-service" onclick="removeServiceRow(this)" style="display:none;">
                                                             <i class="bx bx-trash"></i>
                                                         </button>
                                                     </div>
@@ -241,36 +256,49 @@
 <script>
     let serviceCount = 1;
 
+    const serviceOptionsHtml = @json($services->map(fn ($s) => [
+        'id' => $s->id,
+        'name' => $s->name,
+        'unit_price' => (float) $s->unit_price,
+    ])->values());
+
+    function buildServiceSelectOptions(selectedId = '') {
+        let html = '<option value="">Select Service</option>';
+        serviceOptionsHtml.forEach(s => {
+            const selected = String(selectedId) === String(s.id) ? ' selected' : '';
+            html += `<option value="${s.id}" data-price="${s.unit_price}" data-name="${s.name}"${selected}>${s.name} (${s.unit_price.toFixed(2)} TZS)</option>`;
+        });
+        return html;
+    }
+
     function addService() {
         const container = document.getElementById('servicesContainer');
         const newService = document.createElement('div');
         newService.className = 'service-item';
-        newService.id = `service_${serviceCount}`;
+        newService.dataset.index = String(serviceCount);
         newService.innerHTML = `
-            <div class="row align-items-center">
-                <div class="col-md-6">
-                    <select class="form-select service-select" name="services[${serviceCount}][service_id]" onchange="updateServicePrice(this, ${serviceCount})">
-                        <option value="">Select Service</option>
-                        @foreach($services as $service)
-                            <option value="{{ $service->id }}" 
-                                    data-price="{{ $service->price }}"
-                                    data-name="{{ $service->name }}">
-                                {{ $service->name }} - {{ number_format($service->price, 2) }} TZS
-                            </option>
-                        @endforeach
+            <div class="row align-items-center g-2">
+                <div class="col-md-5">
+                    <select class="form-select service-select" name="services[${serviceCount}][service_id]" onchange="updateServicePrice(this)">
+                        ${buildServiceSelectOptions()}
                     </select>
                 </div>
-                <div class="col-md-3">
-                    <input type="number" class="form-control quantity-input" 
-                           name="services[${serviceCount}][quantity]" 
-                           value="1" min="1" 
-                           onchange="calculateServiceTotal(${serviceCount})">
+                <div class="col-md-2">
+                    <input type="number" class="form-control quantity-input"
+                           name="services[${serviceCount}][quantity]"
+                           value="1" min="1"
+                           oninput="calculateServiceTotalFromRow(this.closest('.service-item'))">
+                </div>
+                <div class="col-md-2">
+                    <input type="number" class="form-control unit-price-input"
+                           name="services[${serviceCount}][unit_price]"
+                           value="" min="0" step="0.01" placeholder="0.00"
+                           oninput="calculateServiceTotalFromRow(this.closest('.service-item'))">
                 </div>
                 <div class="col-md-3">
                     <div class="input-group">
-                        <input type="text" class="form-control total-display" 
-                               readonly value="0.00">
-                        <button type="button" class="btn btn-danger" onclick="removeService(${serviceCount})">
+                        <input type="text" class="form-control total-display" readonly value="0.00">
+                        <button type="button" class="btn btn-danger btn-remove-service" onclick="removeServiceRow(this)">
                             <i class="bx bx-trash"></i>
                         </button>
                     </div>
@@ -279,82 +307,88 @@
         `;
         container.appendChild(newService);
         serviceCount++;
+        updateRemoveButtons();
     }
 
-    function removeService(index) {
-        const serviceItem = document.getElementById(`service_${index}`);
-        if (serviceItem) {
-            serviceItem.remove();
+    function removeServiceRow(btn) {
+        const row = btn.closest('.service-item');
+        if (row) {
+            row.remove();
             calculateTotal();
-        } else {
-            // For first service item
-            const firstService = document.querySelector('.service-item');
-            if (firstService && serviceCount > 1) {
-                firstService.querySelector('.service-select').value = '';
-                firstService.querySelector('.quantity-input').value = 1;
-                firstService.querySelector('.total-display').value = '0.00';
-                calculateTotal();
-            }
+            updateRemoveButtons();
         }
     }
 
-    function updateServicePrice(select, index) {
+    function updateRemoveButtons() {
+        const rows = document.querySelectorAll('#servicesContainer .service-item');
+        rows.forEach((row, i) => {
+            const btn = row.querySelector('.btn-remove-service');
+            if (btn) {
+                btn.style.display = rows.length > 1 ? '' : 'none';
+            }
+        });
+    }
+
+    function updateServicePrice(select) {
+        const row = select.closest('.service-item');
         const option = select.options[select.selectedIndex];
-        const price = parseFloat(option.getAttribute('data-price')) || 0;
-        const quantityInput = select.closest('.service-item').querySelector('.quantity-input');
-        const totalDisplay = select.closest('.service-item').querySelector('.total-display');
-        
-        const quantity = parseInt(quantityInput.value) || 1;
-        const total = price * quantity;
-        totalDisplay.value = total.toFixed(2);
-        
-        calculateTotal();
+        const unitPriceInput = row.querySelector('.unit-price-input');
+        if (option && option.value) {
+            const catalogPrice = parseFloat(option.getAttribute('data-price')) || 0;
+            unitPriceInput.value = catalogPrice.toFixed(2);
+        } else {
+            unitPriceInput.value = '';
+        }
+        calculateServiceTotalFromRow(row);
     }
 
-    function calculateServiceTotal(index) {
-        const serviceItem = document.getElementById(`service_${index}`);
-        if (!serviceItem) {
-            // First service item
-            const firstService = document.querySelector('.service-item');
-            if (firstService) {
-                const select = firstService.querySelector('.service-select');
-                const quantityInput = firstService.querySelector('.quantity-input');
-                const totalDisplay = firstService.querySelector('.total-display');
-                
-                const option = select.options[select.selectedIndex];
-                if (option && option.value) {
-                    const price = parseFloat(option.getAttribute('data-price')) || 0;
-                    const quantity = parseInt(quantityInput.value) || 1;
-                    const total = price * quantity;
-                    totalDisplay.value = total.toFixed(2);
-                }
-            }
-        } else {
-            const select = serviceItem.querySelector('.service-select');
-            const quantityInput = serviceItem.querySelector('.quantity-input');
-            const totalDisplay = serviceItem.querySelector('.total-display');
-            
-            const option = select.options[select.selectedIndex];
-            if (option && option.value) {
-                const price = parseFloat(option.getAttribute('data-price')) || 0;
-                const quantity = parseInt(quantityInput.value) || 1;
-                const total = price * quantity;
-                totalDisplay.value = total.toFixed(2);
-            }
+    function calculateServiceTotalFromRow(row) {
+        if (!row) return;
+        const select = row.querySelector('.service-select');
+        const quantityInput = row.querySelector('.quantity-input');
+        const unitPriceInput = row.querySelector('.unit-price-input');
+        const totalDisplay = row.querySelector('.total-display');
+
+        if (!select.value) {
+            totalDisplay.value = '0.00';
+            calculateTotal();
+            return;
         }
+
+        const quantity = parseFloat(quantityInput.value) || 1;
+        let unitPrice = parseFloat(unitPriceInput.value);
+        if (isNaN(unitPrice) || unitPriceInput.value === '') {
+            const option = select.options[select.selectedIndex];
+            unitPrice = parseFloat(option.getAttribute('data-price')) || 0;
+            unitPriceInput.value = unitPrice.toFixed(2);
+        }
+
+        const total = Math.max(0, unitPrice) * quantity;
+        totalDisplay.value = total.toFixed(2);
         calculateTotal();
     }
 
     function calculateTotal() {
         let total = 0;
         document.querySelectorAll('.total-display').forEach(display => {
-            const value = parseFloat(display.value) || 0;
-            total += value;
+            total += parseFloat(display.value) || 0;
         });
         document.getElementById('totalAmount').textContent = total.toFixed(2);
     }
 
-    // Validate form before submit
+    document.addEventListener('DOMContentLoaded', function () {
+        document.querySelectorAll('#servicesContainer .service-item').forEach(row => {
+            const select = row.querySelector('.service-select');
+            const unitPriceInput = row.querySelector('.unit-price-input');
+            if (select.value && !unitPriceInput.value) {
+                updateServicePrice(select);
+            } else {
+                calculateServiceTotalFromRow(row);
+            }
+        });
+        updateRemoveButtons();
+    });
+
     document.getElementById('visitForm').addEventListener('submit', function(e) {
         const departments = document.querySelectorAll('input[name="departments[]"]:checked');
         if (departments.length === 0) {

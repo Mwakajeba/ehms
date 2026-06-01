@@ -933,6 +933,8 @@ Route::prefix('hospital')->name('hospital.')->middleware(['auth', 'company.scope
     // Audiology Routes
     Route::prefix('audiology')->name('audiology.')->group(function () {
         Route::get('/', [App\Http\Controllers\Hospital\AudiologyController::class, 'index'])->name('index');
+        Route::get('/waiting-visits', [App\Http\Controllers\Hospital\AudiologyController::class, 'waitingVisitsIndex'])->name('waiting-visits.index');
+        Route::get('/in-service-visits', [App\Http\Controllers\Hospital\AudiologyController::class, 'inServiceVisitsIndex'])->name('in-service-visits.index');
         Route::get('/visits/{visitId}/create', [App\Http\Controllers\Hospital\AudiologyController::class, 'create'])->name('create');
         Route::post('/visits/{visitId}', [App\Http\Controllers\Hospital\AudiologyController::class, 'store'])->name('store');
         Route::get('/results/{id}', [App\Http\Controllers\Hospital\AudiologyController::class, 'show'])->name('show');

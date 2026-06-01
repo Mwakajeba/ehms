@@ -616,6 +616,7 @@ class ReceptionController extends Controller
             'services' => 'nullable|array',
             'services.*.service_id' => 'exists:inventory_items,id',
             'services.*.quantity' => 'nullable|integer|min:1',
+            'services.*.unit_price' => 'nullable|numeric|min:0',
         ]);
 
         try {
@@ -719,7 +720,9 @@ class ReceptionController extends Controller
                         }
 
                         $quantity = $serviceData['quantity'] ?? 1;
-                        $unitPrice = $service->unit_price;
+                        $unitPrice = isset($serviceData['unit_price']) && $serviceData['unit_price'] !== ''
+                            ? (float) $serviceData['unit_price']
+                            : (float) $service->unit_price;
                         $lineTotal = $unitPrice * $quantity;
                         $subtotal += $lineTotal;
 
