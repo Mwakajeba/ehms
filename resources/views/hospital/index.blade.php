@@ -57,7 +57,7 @@
                             @endif
 
                             <div class="row">
-                                <!-- Reception -->
+                                @can('view reception')
                                 <div class="col-md-6 col-lg-4 mb-4">
                                     <div class="card module-card h-100">
                                         <div class="count-badge bg-primary">{{ number_format($stats['patients']['total'] ?? 0) }}</div>
@@ -73,8 +73,9 @@
                                         </div>
                                     </div>
                                 </div>
+                                @endcan
 
-                                <!-- Cashier -->
+                                @can('view cashier')
                                 <div class="col-md-6 col-lg-4 mb-4">
                                     <div class="card module-card h-100">
                                         <div class="count-badge bg-success">{{ number_format($stats['bills']['pending'] ?? 0) }}</div>
@@ -90,8 +91,9 @@
                                         </div>
                                     </div>
                                 </div>
+                                @endcan
 
-                                <!-- Triage -->
+                                @can('view triage')
                                 <div class="col-md-6 col-lg-4 mb-4">
                                     <div class="card module-card h-100">
                                         <div class="count-badge bg-info">{{ number_format($stats['visits']['triage_pending'] ?? 0) }}</div>
@@ -107,8 +109,9 @@
                                         </div>
                                     </div>
                                 </div>
+                                @endcan
 
-                                <!-- Doctor -->
+                                @can('view doctor')
                                 <div class="col-md-6 col-lg-4 mb-4">
                                     <div class="card module-card h-100">
                                         <div class="count-badge bg-warning">{{ number_format($stats['visits']['doctor_pending'] ?? 0) }}</div>
@@ -124,8 +127,9 @@
                                         </div>
                                     </div>
                                 </div>
+                                @endcan
 
-                                <!-- Lab -->
+                                @can('view lab')
                                 <div class="col-md-6 col-lg-4 mb-4">
                                     <div class="card module-card h-100">
                                         <div class="count-badge bg-danger">{{ number_format($stats['visits']['lab_pending'] ?? 0) }}</div>
@@ -141,8 +145,9 @@
                                         </div>
                                     </div>
                                 </div>
+                                @endcan
 
-                                <!-- Ultrasound -->
+                                @can('view ultrasound')
                                 <div class="col-md-6 col-lg-4 mb-4">
                                     <div class="card module-card h-100">
                                         <div class="count-badge bg-secondary">{{ number_format($stats['visits']['ultrasound_pending'] ?? 0) }}</div>
@@ -158,8 +163,9 @@
                                         </div>
                                     </div>
                                 </div>
+                                @endcan
 
-                                <!-- Audiology -->
+                                @can('view audiology')
                                 <div class="col-md-6 col-lg-4 mb-4">
                                     <div class="card module-card h-100">
                                         <div class="count-badge bg-dark">{{ number_format($stats['visits']['audiology_pending'] ?? 0) }}</div>
@@ -175,8 +181,9 @@
                                         </div>
                                     </div>
                                 </div>
+                                @endcan
 
-                                <!-- Pharmacy -->
+                                @can('view pharmacy')
                                 <div class="col-md-6 col-lg-4 mb-4">
                                     <div class="card module-card h-100">
                                         <div class="count-badge bg-primary">{{ number_format($stats['visits']['pharmacy_pending'] ?? 0) }}</div>
@@ -192,8 +199,9 @@
                                         </div>
                                     </div>
                                 </div>
+                                @endcan
 
-                                <!-- Dental -->
+                                @can('view dental')
                                 <div class="col-md-6 col-lg-4 mb-4">
                                     <div class="card module-card h-100">
                                         <div class="count-badge bg-info">{{ number_format($stats['visits']['dental_pending'] ?? 0) }}</div>
@@ -209,8 +217,9 @@
                                         </div>
                                     </div>
                                 </div>
+                                @endcan
 
-                                <!-- RCH -->
+                                @can('view rch')
                                 <div class="col-md-6 col-lg-4 mb-4">
                                     <div class="card module-card h-100">
                                         <div class="count-badge bg-success">-</div>
@@ -226,8 +235,9 @@
                                         </div>
                                     </div>
                                 </div>
+                                @endcan
 
-                                <!-- Vaccine -->
+                                @can('view vaccine')
                                 <div class="col-md-6 col-lg-4 mb-4">
                                     <div class="card module-card h-100">
                                         <div class="count-badge bg-warning">{{ number_format($stats['visits']['vaccination_pending'] ?? 0) }}</div>
@@ -243,8 +253,9 @@
                                         </div>
                                     </div>
                                 </div>
+                                @endcan
 
-                                <!-- Injection -->
+                                @can('view injection')
                                 <div class="col-md-6 col-lg-4 mb-4">
                                     <div class="card module-card h-100">
                                         <div class="count-badge bg-danger">{{ number_format($stats['visits']['injection_pending'] ?? 0) }}</div>
@@ -260,8 +271,9 @@
                                         </div>
                                     </div>
                                 </div>
+                                @endcan
 
-                                <!-- Family Planning -->
+                                @can('view family planning')
                                 <div class="col-md-6 col-lg-4 mb-4">
                                     <div class="card module-card h-100">
                                         <div class="count-badge bg-primary">{{ number_format($stats['visits']['family_planning_pending'] ?? 0) }}</div>
@@ -277,8 +289,9 @@
                                         </div>
                                     </div>
                                 </div>
+                                @endcan
 
-                                <!-- Hospital Admin -->
+                                @can('view hospital admin')
                                 <div class="col-md-6 col-lg-4 mb-4">
                                     <div class="card module-card h-100">
                                         <div class="count-badge bg-dark">-</div>
@@ -294,8 +307,9 @@
                                         </div>
                                     </div>
                                 </div>
+                                @endcan
 
-                                <!-- Hospital Reports -->
+                                @can('view hospital reports')
                                 <div class="col-md-6 col-lg-4 mb-4">
                                     <div class="card module-card h-100">
                                         <div class="count-badge bg-secondary">-</div>
@@ -311,7 +325,33 @@
                                         </div>
                                     </div>
                                 </div>
+                                @endcan
                             </div>
+
+                            @if(
+                                !auth()->user()->can('view reception')
+                                && !auth()->user()->can('view cashier')
+                                && !auth()->user()->can('view triage')
+                                && !auth()->user()->can('view doctor')
+                                && !auth()->user()->can('view lab')
+                                && !auth()->user()->can('view ultrasound')
+                                && !auth()->user()->can('view audiology')
+                                && !auth()->user()->can('view pharmacy')
+                                && !auth()->user()->can('view dental')
+                                && !auth()->user()->can('view rch')
+                                && !auth()->user()->can('view vaccine')
+                                && !auth()->user()->can('view injection')
+                                && !auth()->user()->can('view family planning')
+                                && !auth()->user()->can('view hospital admin')
+                                && !auth()->user()->can('view hospital reports')
+                            )
+                                <div class="col-12">
+                                    <div class="alert alert-warning mb-0">
+                                        <i class="bx bx-info-circle me-2"></i>
+                                        No hospital module permissions are assigned to your role. Contact an administrator to enable the modules you need.
+                                    </div>
+                                </div>
+                            @endif
 
                             <div class="row mt-4">
                                 <div class="col-12">
