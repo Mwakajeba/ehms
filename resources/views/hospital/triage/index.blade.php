@@ -21,6 +21,22 @@
                 </div>
             @endif
 
+            @if($errors->any())
+                <div class="alert alert-danger alert-dismissible fade show" role="alert">
+                    <i class="bx bx-error-circle me-2"></i>
+                    {{ $errors->first() }}
+                    <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                </div>
+            @endif
+
+            @if(session('info'))
+                <div class="alert alert-info alert-dismissible fade show" role="alert">
+                    <i class="bx bx-info-circle me-2"></i>
+                    {{ session('info') }}
+                    <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                </div>
+            @endif
+
             <!-- Statistics Cards -->
             <div class="row mb-4">
                 <div class="col-md-4">
@@ -99,7 +115,7 @@
                                         <tbody>
                                             @foreach($waitingVisits as $visit)
                                                 @php
-                                                    $triageDept = $visit->visitDepartments->firstWhere('department.type', 'triage');
+                                                    $triageDept = $visit->visitDepartments->first(fn ($vd) => $vd->department?->type === 'triage');
                                                     $waitingTime = $triageDept && $triageDept->waiting_started_at 
                                                         ? $triageDept->waiting_started_at->diffForHumans() 
                                                         : 'N/A';
@@ -168,7 +184,7 @@
                                         <tbody>
                                             @foreach($inServiceVisits as $visit)
                                                 @php
-                                                    $triageDept = $visit->visitDepartments->firstWhere('department.type', 'triage');
+                                                    $triageDept = $visit->visitDepartments->first(fn ($vd) => $vd->department?->type === 'triage');
                                                     $serviceTime = $triageDept && $triageDept->service_started_at 
                                                         ? $triageDept->service_started_at->diffForHumans() 
                                                         : 'N/A';

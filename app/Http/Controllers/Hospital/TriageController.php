@@ -7,14 +7,64 @@ use App\Models\Hospital\Visit;
 use App\Models\Hospital\VisitDepartment;
 use App\Models\Hospital\TriageVital;
 use App\Models\Hospital\HospitalDepartment;
-use App\Models\Sales\SalesInvoice;
-use App\Models\Customer;
+use App\Services\Hospital\VisitBillingClearance;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 
 class TriageController extends Controller
 {
+    protected function branchId(): int
+    {
+        return (int) (session('branch_id') ?? Auth::user()->branch_id);
+    }
+
+    protected function assertVisitBranch(Visit $visit): void
+    {
+        $branchId = $this->branchId();
+
+        if ((int) $visit->branch_id !== $branchId) {
+            abort(403, 'This visit belongs to another branch. Switch to that branch to continue.');
+        }
+
+        if ($visit->company_id !== Auth::user()->company_id) {
+            abort(403, 'Unauthorized access to visit.');
+        }
+    }
+
+    protected function waitingVisitsQuery(int $companyId, int $branchId)
+    {
+        return VisitBillingClearance::applyClearedBillOrPaidInvoice(
+            Visit::query()
+                ->with(['patient', 'visitDepartments.department', 'bills'])
+                ->where('company_id', $companyId)
+                ->where('branch_id', $branchId)
+                ->whereHas('visitDepartments', function ($q) use ($branchId) {
+                    $q->where('status', 'waiting')
+                        ->whereHas('department', function ($query) use ($branchId) {
+                            $query->where('type', 'triage');
+                            VisitBillingClearance::scopeDepartmentsForBranch($query, $branchId);
+                        });
+                }),
+            $companyId,
+            $branchId
+        );
+    }
+
+    protected function inServiceVisitsQuery(int $companyId, int $branchId)
+    {
+        return Visit::with(['patient', 'visitDepartments.department', 'triageVitals'])
+            ->where('company_id', $companyId)
+            ->where('branch_id', $branchId)
+            ->whereHas('visitDepartments', function ($q) use ($branchId) {
+                $q->where('status', 'in_service')
+                    ->whereHas('department', function ($query) use ($branchId) {
+                        $query->where('type', 'triage');
+                        VisitBillingClearance::scopeDepartmentsForBranch($query, $branchId);
+                    });
+            });
+    }
+
     /**
      * Display triage dashboard
      */
@@ -22,55 +72,16 @@ class TriageController extends Controller
     {
         $user = Auth::user();
         $companyId = $user->company_id;
-        $branchId = session('branch_id') ?? $user->branch_id;
+        $branchId = $this->branchId();
 
-        // Get visits waiting for triage (bills must be cleared OR paid SalesInvoice)
-        // Either VisitBill with clearance_status = 'cleared' OR Customer with paid SalesInvoice matching patient
-        $waitingVisits = Visit::with(['patient', 'visitDepartments.department', 'bills'])
-            ->where('company_id', $companyId)
-            ->where('branch_id', $branchId)
-            ->whereHas('visitDepartments', function ($q) {
-                $q->whereHas('department', function ($query) {
-                    $query->where('type', 'triage');
-                })->where('status', 'waiting');
-            })
-            ->where(function ($query) use ($companyId, $branchId) {
-                // Either has cleared VisitBill (old flow)
-                $query->whereHas('bills', function ($q) {
-                    $q->where('clearance_status', 'cleared');
-                })
-                // OR has Customer with paid SalesInvoice matching patient (new pre-billing flow)
-                ->orWhereExists(function ($subQuery) use ($companyId, $branchId) {
-                    $subQuery->select(DB::raw(1))
-                        ->from('sales_invoices')
-                        ->join('customers', 'sales_invoices.customer_id', '=', 'customers.id')
-                        ->join('patients', 'patients.id', '=', 'visits.patient_id')
-                        ->where('sales_invoices.company_id', $companyId)
-                        ->where('sales_invoices.branch_id', $branchId)
-                        ->where('sales_invoices.status', 'paid')
-                        ->where(function ($q) {
-                            $q->whereColumn('customers.phone', 'patients.phone')
-                                ->orWhereColumn('customers.email', 'patients.email')
-                                ->orWhereColumn('customers.name', DB::raw("CONCAT(patients.first_name, ' ', patients.last_name)"));
-                        });
-                });
-            })
+        $waitingVisits = $this->waitingVisitsQuery($companyId, $branchId)
             ->orderBy('visit_date', 'asc')
             ->get();
 
-        // Get visits in service at triage
-        $inServiceVisits = Visit::with(['patient', 'visitDepartments.department', 'triageVitals'])
-            ->where('company_id', $companyId)
-            ->where('branch_id', $branchId)
-            ->whereHas('visitDepartments', function ($q) {
-                $q->whereHas('department', function ($query) {
-                    $query->where('type', 'triage');
-                })->where('status', 'in_service');
-            })
+        $inServiceVisits = $this->inServiceVisitsQuery($companyId, $branchId)
             ->orderBy('visit_date', 'asc')
             ->get();
 
-        // Get statistics
         $stats = [
             'waiting' => $waitingVisits->count(),
             'in_service' => $inServiceVisits->count(),
@@ -89,59 +100,32 @@ class TriageController extends Controller
      */
     public function create($visitId)
     {
-        $visit = Visit::with(['patient', 'visitDepartments.department', 'bills'])
+        $visit = Visit::with(['patient', 'visitDepartments.department', 'bills', 'triageVitals'])
             ->findOrFail($visitId);
 
-        // Verify access
-        if ($visit->company_id !== Auth::user()->company_id) {
-            abort(403, 'Unauthorized access to visit.');
-        }
+        $this->assertVisitBranch($visit);
 
-        // Check if bill is cleared (VisitBill) OR has paid SalesInvoice (pre-billing)
-        $hasClearedBill = $visit->bills()->where('clearance_status', 'cleared')->exists();
-        
-        // Check if patient has paid SalesInvoice (match Customer by name/phone/email)
-        $patient = $visit->patient;
-        $hasPaidInvoice = false;
-        if ($patient) {
-            $customer = Customer::where('company_id', $patient->company_id)
-                ->where(function ($q) use ($patient) {
-                    if ($patient->phone) {
-                        $q->where('phone', $patient->phone);
-                    }
-                    if ($patient->email) {
-                        $q->orWhere('email', $patient->email);
-                    }
-                    $q->orWhere('name', $patient->full_name);
-                })
-                ->first();
-            
-            if ($customer) {
-                $hasPaidInvoice = SalesInvoice::where('customer_id', $customer->id)
-                    ->where('company_id', $patient->company_id)
-                    ->where('branch_id', $patient->branch_id)
-                    ->where('status', 'paid')
-                    ->exists();
-            }
-        }
-        
-        if (!$hasClearedBill && !$hasPaidInvoice) {
+        $companyId = Auth::user()->company_id;
+        $branchId = $this->branchId();
+
+        if (!VisitBillingClearance::visitHasClearance($visit, $companyId, $branchId)) {
             return redirect()->route('hospital.triage.index')
-                ->withErrors(['error' => 'Patient bill must be cleared or paid before triage.']);
+                ->withErrors(['error' => 'Patient bill must be cleared or paid at this branch before triage.']);
         }
 
-        // Check if triage already done
         if ($visit->triageVitals) {
             return redirect()->route('hospital.triage.show', $visit->id)
                 ->with('info', 'Triage already completed for this visit.');
         }
 
-        // Get available departments for routing
         $departments = HospitalDepartment::active()
-            ->where('company_id', Auth::user()->company_id)
+            ->where('company_id', $companyId)
             ->where('type', '!=', 'triage')
             ->where('type', '!=', 'reception')
             ->where('type', '!=', 'cashier')
+            ->where(function ($q) use ($branchId) {
+                VisitBillingClearance::scopeDepartmentsForBranch($q, $branchId);
+            })
             ->orderBy('name')
             ->get();
 
@@ -155,9 +139,14 @@ class TriageController extends Controller
     {
         $visit = Visit::with(['patient', 'visitDepartments'])->findOrFail($visitId);
 
-        // Verify access
-        if ($visit->company_id !== Auth::user()->company_id) {
-            abort(403, 'Unauthorized access to visit.');
+        $this->assertVisitBranch($visit);
+
+        $companyId = Auth::user()->company_id;
+        $branchId = $this->branchId();
+
+        if (!VisitBillingClearance::visitHasClearance($visit, $companyId, $branchId)) {
+            return redirect()->route('hospital.triage.index')
+                ->withErrors(['error' => 'Patient bill must be cleared or paid at this branch before triage.']);
         }
 
         $validated = $request->validate([
@@ -180,18 +169,14 @@ class TriageController extends Controller
             DB::beginTransaction();
 
             $user = Auth::user();
-            $companyId = $user->company_id;
-            $branchId = session('branch_id') ?? $user->branch_id;
 
-            // Calculate BMI if weight and height provided
             $bmi = null;
             if (!empty($validated['weight']) && !empty($validated['height'])) {
                 $heightInMeters = $validated['height'] / 100;
                 $bmi = $validated['weight'] / ($heightInMeters * $heightInMeters);
             }
 
-            // Create triage vitals
-            $triageVital = TriageVital::create([
+            TriageVital::create([
                 'visit_id' => $visit->id,
                 'patient_id' => $visit->patient_id,
                 'temperature' => $validated['temperature'] ?? null,
@@ -211,10 +196,10 @@ class TriageController extends Controller
                 'branch_id' => $branchId,
             ]);
 
-            // Update triage visit department status to completed
             $triageDept = $visit->visitDepartments()
-                ->whereHas('department', function ($q) {
+                ->whereHas('department', function ($q) use ($branchId) {
                     $q->where('type', 'triage');
+                    VisitBillingClearance::scopeDepartmentsForBranch($q, $branchId);
                 })
                 ->first();
 
@@ -225,13 +210,11 @@ class TriageController extends Controller
                 $triageDept->save();
             }
 
-            // Route to additional departments if specified
             if (!empty($validated['route_to_departments'])) {
                 $maxSequence = $visit->visitDepartments()->max('sequence') ?? 0;
                 $sequence = $maxSequence + 1;
 
                 foreach ($validated['route_to_departments'] as $deptId) {
-                    // Check if department already assigned
                     $existing = $visit->visitDepartments()
                         ->where('department_id', $deptId)
                         ->first();
@@ -254,6 +237,7 @@ class TriageController extends Controller
                 ->with('success', 'Triage vitals recorded and patient routed successfully.');
         } catch (\Exception $e) {
             DB::rollBack();
+
             return back()->withInput()->withErrors(['error' => 'Failed to record triage: ' . $e->getMessage()]);
         }
     }
@@ -269,10 +253,7 @@ class TriageController extends Controller
             'visitDepartments.department',
         ])->findOrFail($visitId);
 
-        // Verify access
-        if ($visit->company_id !== Auth::user()->company_id) {
-            abort(403, 'Unauthorized access to visit.');
-        }
+        $this->assertVisitBranch($visit);
 
         return view('hospital.triage.show', compact('visit'));
     }
@@ -284,21 +265,20 @@ class TriageController extends Controller
     {
         $visit = Visit::with(['visitDepartments'])->findOrFail($visitId);
 
-        // Verify access
-        if ($visit->company_id !== Auth::user()->company_id) {
-            abort(403, 'Unauthorized access to visit.');
-        }
+        $this->assertVisitBranch($visit);
 
-        // Find triage department
+        $branchId = $this->branchId();
+
         $triageDept = $visit->visitDepartments()
-            ->whereHas('department', function ($q) {
+            ->whereHas('department', function ($q) use ($branchId) {
                 $q->where('type', 'triage');
+                VisitBillingClearance::scopeDepartmentsForBranch($q, $branchId);
             })
             ->where('status', 'waiting')
             ->first();
 
         if (!$triageDept) {
-            return back()->withErrors(['error' => 'Triage department not found or already started.']);
+            return back()->withErrors(['error' => 'Triage department not found for this branch or service already started.']);
         }
 
         try {
