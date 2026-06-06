@@ -454,41 +454,8 @@ class DashboardController extends Controller
 
         $insurancePaidToday = (float) $visitInsuranceToday + (float) $invoiceInsuranceToday;
 
-        // Revenue This Month — cash + insurance collections (month to date)
-        $receiptsThisMonth = Receipt::whereHas('branch', function ($query) use ($company) {
-                $query->where('company_id', $company->id);
-            })
-            ->when(!empty($permittedBranchIds), fn($q) => $q->whereIn('branch_id', $permittedBranchIds))
-            ->when($branchId, fn($q) => $q->where('branch_id', $branchId))
-            ->whereIn('reference_type', ['sales_invoice', 'manual'])
-            ->whereBetween('date', [$startOfMonth, $today])
-            ->sum('amount');
-
-        $visitCashThisMonth = VisitPayment::where('company_id', $company->id)
-            ->when(!empty($permittedBranchIds), fn($q) => $q->whereIn('branch_id', $permittedBranchIds))
-            ->when($branchId, fn($q) => $q->where('branch_id', $branchId))
-            ->whereDate('payment_date', '>=', $startOfMonth)
-            ->whereDate('payment_date', '<=', $today)
-            ->whereIn('payment_method', ['cash', 'mobile_payment'])
-            ->sum('amount');
-
-        $visitInsuranceThisMonth = VisitPayment::where('company_id', $company->id)
-            ->when(!empty($permittedBranchIds), fn($q) => $q->whereIn('branch_id', $permittedBranchIds))
-            ->when($branchId, fn($q) => $q->where('branch_id', $branchId))
-            ->whereDate('payment_date', '>=', $startOfMonth)
-            ->whereDate('payment_date', '<=', $today)
-            ->whereIn('payment_method', ['nhif', 'chf', 'jubilee', 'strategy'])
-            ->sum('amount');
-
-        $invoiceInsuranceThisMonth = InsuranceInvoicePayment::where('company_id', $company->id)
-            ->when(!empty($permittedBranchIds), fn($q) => $q->whereIn('branch_id', $permittedBranchIds))
-            ->when($branchId, fn($q) => $q->where('branch_id', $branchId))
-            ->whereBetween('payment_date', [$startOfMonth, $today])
-            ->sum('amount');
-
-        $cashCollectedThisMonth = (float) $receiptsThisMonth + (float) $visitCashThisMonth;
-        $insuranceCollectedThisMonth = (float) $visitInsuranceThisMonth + (float) $invoiceInsuranceThisMonth;
-        $revenueThisMonth = $cashCollectedThisMonth + $insuranceCollectedThisMonth;
+        // Total revenue in selected period — cash + insurance collections
+        $revenueThisMonth = $cashCollectedToday + $insurancePaidToday;
 
         // Receivables aging buckets (current and overdue)
         $aging = DB::table('sales_invoices')
