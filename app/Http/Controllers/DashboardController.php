@@ -19,6 +19,10 @@ use App\Services\InventoryCostService;
 use App\Models\Inventory\Item as InventoryItem;
 use App\Models\Sales\CashSale;
 use App\Models\Sales\PosSale;
+use App\Models\Hospital\Patient;
+use App\Models\Hospital\Visit;
+use App\Models\Hospital\VisitPayment;
+use App\Models\Hospital\InsuranceInvoicePayment;
 
 
 class DashboardController extends Controller
@@ -41,9 +45,13 @@ class DashboardController extends Controller
                 'totalSalesToday' => 0,
                 'grossProfitMtd' => 0,
                 'totalExpensesToday' => 0,
-                'outstandingInvoicesAmount' => 0,
-                'outstandingInvoicesCount' => 0,
-                'totalCustomers' => 0,
+                'cashierOutstandingAmount' => 0,
+                'cashierOutstandingCount' => 0,
+                'totalPatients' => 0,
+                'patientsAdmittedToday' => 0,
+                'totalVisitsToday' => 0,
+                'cashCollectedToday' => 0,
+                'insurancePaidToday' => 0,
                 'roomsOccupied' => 0,
                 'totalRooms' => 0,
                 'todaysBookingsValue' => 0,
@@ -349,73 +357,105 @@ class DashboardController extends Controller
             ->whereDate('date', $today)
             ->sum('amount');
 
-        // Total Outstanding Invoices (amount and count)
-        $outstandingInvoicesAmount = \App\Models\Sales\SalesInvoice::where('company_id', $company->id)
+        // Total Outstanding In Cashier — pending sales invoices (draft/sent) awaiting payment
+        $cashierOutstandingQuery = \App\Models\Sales\SalesInvoice::where('company_id', $company->id)
             ->when(!empty($permittedBranchIds), fn($q) => $q->whereIn('branch_id', $permittedBranchIds))
             ->when($branchId, fn($q) => $q->where('branch_id', $branchId))
-            ->where('balance_due', '>', 0)
-            ->sum('balance_due');
-        $outstandingInvoicesCount = \App\Models\Sales\SalesInvoice::where('company_id', $company->id)
+            ->whereIn('status', ['draft', 'sent'])
+            ->where('balance_due', '>', 0);
+
+        $cashierOutstandingAmount = (clone $cashierOutstandingQuery)->sum('balance_due');
+        $cashierOutstandingCount = (clone $cashierOutstandingQuery)->count();
+
+        // Hospital KPIs (branch-aware)
+        $totalPatients = Patient::where('company_id', $company->id)
             ->when(!empty($permittedBranchIds), fn($q) => $q->whereIn('branch_id', $permittedBranchIds))
             ->when($branchId, fn($q) => $q->where('branch_id', $branchId))
-            ->where('balance_due', '>', 0)
+            ->active()
             ->count();
 
-        // Total Customers (branch-aware)
-        $totalCustomers = \App\Models\Customer::where('company_id', $company->id)
+        $patientsAdmittedToday = Patient::where('company_id', $company->id)
             ->when(!empty($permittedBranchIds), fn($q) => $q->whereIn('branch_id', $permittedBranchIds))
             ->when($branchId, fn($q) => $q->where('branch_id', $branchId))
+            ->whereDate('admitted_date', $today)
             ->count();
 
-        // Cash Collected Today - from receipts (money coming in)
-        // Include cash receipts from Invoices and Receipt Vouchers (from receipts table)
-        $receiptsToday = \App\Models\Receipt::whereHas('branch', function($query) use ($company) {
+        $totalVisitsToday = Visit::where('company_id', $company->id)
+            ->when(!empty($permittedBranchIds), fn($q) => $q->whereIn('branch_id', $permittedBranchIds))
+            ->when($branchId, fn($q) => $q->where('branch_id', $branchId))
+            ->whereDate('visit_date', $today)
+            ->count();
+
+        // Cash Collected Today — visit cash/mobile payments plus invoice receipts
+        $receiptsToday = Receipt::whereHas('branch', function ($query) use ($company) {
                 $query->where('company_id', $company->id);
             })
             ->when(!empty($permittedBranchIds), fn($q) => $q->whereIn('branch_id', $permittedBranchIds))
             ->when($branchId, fn($q) => $q->where('branch_id', $branchId))
-            ->whereIn('reference_type', ['sales_invoice', 'manual']) // Receipts from invoices and receipt vouchers
+            ->whereIn('reference_type', ['sales_invoice', 'manual'])
             ->whereDate('date', $today)
             ->sum('amount');
-        
-        // Cash Sales don't create receipt records, so query directly from cash_sales table
-        $cashSalesToday = \App\Models\Sales\CashSale::where('company_id', $company->id)
-            ->when(!empty($permittedBranchIds), fn($q) => $q->whereIn('branch_id', $permittedBranchIds))
-            ->when($branchId, fn($q) => $q->where('branch_id', $branchId))
-            ->whereDate('sale_date', $today)
-            ->sum('total_amount');
-        
-        // POS sales don't create receipt records, so query directly from pos_sales table
-        $posSalesToday = \App\Models\Sales\PosSale::where('company_id', $company->id)
-            ->when(!empty($permittedBranchIds), fn($q) => $q->whereIn('branch_id', $permittedBranchIds))
-            ->when($branchId, fn($q) => $q->where('branch_id', $branchId))
-            ->whereDate('sale_date', $today)
-            ->sum('total_amount');
-        
-        $cashCollectedToday = $receiptsToday + $cashSalesToday + $posSalesToday;
 
-        // Revenue This Month - from sales invoices (subtotal, excluding VAT)
-        // Convert foreign currencies to functional currency for accurate reporting
-        $invoicesThisMonth = \App\Models\Sales\SalesInvoice::where('company_id', $company->id)
+        $visitCashToday = VisitPayment::where('company_id', $company->id)
             ->when(!empty($permittedBranchIds), fn($q) => $q->whereIn('branch_id', $permittedBranchIds))
             ->when($branchId, fn($q) => $q->where('branch_id', $branchId))
-            ->where('invoice_date', '>=', $startOfMonth)
-            ->whereNotIn('status', ['cancelled'])
-            ->get(['subtotal', 'currency', 'exchange_rate']);
-        
-        $revenueThisMonth = $invoicesThisMonth->sum(function ($invoice) use ($functionalCurrency) {
-            $invoiceCurrency = $invoice->currency ?? $functionalCurrency;
-            $exchangeRate = $invoice->exchange_rate ?? 1.000000;
-            
-            // If invoice is in foreign currency, convert to functional currency
-            if ($invoiceCurrency !== $functionalCurrency && $exchangeRate != 1.000000) {
-                // Convert: LCY = FCY * Exchange Rate
-                return $invoice->subtotal * $exchangeRate;
-            }
-            
-            // Already in functional currency, use as is
-            return $invoice->subtotal;
-        });
+            ->whereDate('payment_date', $today)
+            ->whereIn('payment_method', ['cash', 'mobile_payment'])
+            ->sum('amount');
+
+        $cashCollectedToday = (float) $receiptsToday + (float) $visitCashToday;
+
+        // Insurance payments today — visit insurance methods plus insurance invoice payments
+        $visitInsuranceToday = VisitPayment::where('company_id', $company->id)
+            ->when(!empty($permittedBranchIds), fn($q) => $q->whereIn('branch_id', $permittedBranchIds))
+            ->when($branchId, fn($q) => $q->where('branch_id', $branchId))
+            ->whereDate('payment_date', $today)
+            ->whereIn('payment_method', ['nhif', 'chf', 'jubilee', 'strategy'])
+            ->sum('amount');
+
+        $invoiceInsuranceToday = InsuranceInvoicePayment::where('company_id', $company->id)
+            ->when(!empty($permittedBranchIds), fn($q) => $q->whereIn('branch_id', $permittedBranchIds))
+            ->when($branchId, fn($q) => $q->where('branch_id', $branchId))
+            ->whereDate('payment_date', $today)
+            ->sum('amount');
+
+        $insurancePaidToday = (float) $visitInsuranceToday + (float) $invoiceInsuranceToday;
+
+        // Revenue This Month — cash + insurance collections (month to date)
+        $receiptsThisMonth = Receipt::whereHas('branch', function ($query) use ($company) {
+                $query->where('company_id', $company->id);
+            })
+            ->when(!empty($permittedBranchIds), fn($q) => $q->whereIn('branch_id', $permittedBranchIds))
+            ->when($branchId, fn($q) => $q->where('branch_id', $branchId))
+            ->whereIn('reference_type', ['sales_invoice', 'manual'])
+            ->whereBetween('date', [$startOfMonth, $today])
+            ->sum('amount');
+
+        $visitCashThisMonth = VisitPayment::where('company_id', $company->id)
+            ->when(!empty($permittedBranchIds), fn($q) => $q->whereIn('branch_id', $permittedBranchIds))
+            ->when($branchId, fn($q) => $q->where('branch_id', $branchId))
+            ->whereDate('payment_date', '>=', $startOfMonth)
+            ->whereDate('payment_date', '<=', $today)
+            ->whereIn('payment_method', ['cash', 'mobile_payment'])
+            ->sum('amount');
+
+        $visitInsuranceThisMonth = VisitPayment::where('company_id', $company->id)
+            ->when(!empty($permittedBranchIds), fn($q) => $q->whereIn('branch_id', $permittedBranchIds))
+            ->when($branchId, fn($q) => $q->where('branch_id', $branchId))
+            ->whereDate('payment_date', '>=', $startOfMonth)
+            ->whereDate('payment_date', '<=', $today)
+            ->whereIn('payment_method', ['nhif', 'chf', 'jubilee', 'strategy'])
+            ->sum('amount');
+
+        $invoiceInsuranceThisMonth = InsuranceInvoicePayment::where('company_id', $company->id)
+            ->when(!empty($permittedBranchIds), fn($q) => $q->whereIn('branch_id', $permittedBranchIds))
+            ->when($branchId, fn($q) => $q->where('branch_id', $branchId))
+            ->whereBetween('payment_date', [$startOfMonth, $today])
+            ->sum('amount');
+
+        $cashCollectedThisMonth = (float) $receiptsThisMonth + (float) $visitCashThisMonth;
+        $insuranceCollectedThisMonth = (float) $visitInsuranceThisMonth + (float) $invoiceInsuranceThisMonth;
+        $revenueThisMonth = $cashCollectedThisMonth + $insuranceCollectedThisMonth;
 
         // Receivables aging buckets (current and overdue)
         $aging = DB::table('sales_invoices')
@@ -464,10 +504,13 @@ class DashboardController extends Controller
             'grossProfitMtd' => $grossProfitMtd,
             'netProfitYtd' => $netProfitYtd,
             'totalExpensesToday' => $totalExpensesToday,
-            'outstandingInvoicesAmount' => $outstandingInvoicesAmount,
-            'outstandingInvoicesCount' => $outstandingInvoicesCount,
-            'totalCustomers' => $totalCustomers,
+            'cashierOutstandingAmount' => $cashierOutstandingAmount,
+            'cashierOutstandingCount' => $cashierOutstandingCount,
+            'totalPatients' => $totalPatients,
+            'patientsAdmittedToday' => $patientsAdmittedToday,
+            'totalVisitsToday' => $totalVisitsToday,
             'cashCollectedToday' => $cashCollectedToday,
+            'insurancePaidToday' => $insurancePaidToday,
             'pendingApprovalsCount' => $pendingApprovalsCount,
             'revenueThisMonth' => $revenueThisMonth,
             'receivablesAging' => $receivablesAging,
