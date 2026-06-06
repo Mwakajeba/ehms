@@ -182,7 +182,7 @@ use Vinkla\Hashids\Facades\Hashids;
                                 <span class="badge bg-info fs-6">
                                     Showing: {{ $kpiPeriodLabel ?? 'Today' }}
                                 </span>
-                                <small class="text-muted ms-2">Applies to Patients Admitted, Visits, Cash Collected, and Insurance below.</small>
+                                <small class="text-muted ms-2">Applies to Patients Admitted, Visits, Cash Collected, Insurance, and Revenue below.</small>
                             </div>
                         </form>
                     </div>
@@ -320,10 +320,10 @@ use Vinkla\Hashids\Facades\Hashids;
                     <div class="card-body">
                         <div class="d-flex align-items-center">
                             <div class="flex-grow-1">
-                                <p class="mb-0 text-secondary">Revenue This Month</p>
+                                <p class="mb-0 text-secondary">Total Revenue</p>
                                 <h4 class="my-1 text-primary">TZS {{ number_format($revenueThisMonth ?? 0, 2) }}</h4>
                                 <p class="mb-0 font-13">
-                                    <span class="text-primary"><i class="bx bx-trending-up align-middle"></i> Cash + insurance this month</span>
+                                    <span class="text-primary"><i class="bx bx-trending-up align-middle"></i> Cash + insurance · {{ $kpiPeriodLabel ?? 'Today' }}</span>
                                 </p>
                             </div>
                             <div class="widgets-icons-2 rounded-circle bg-gradient-primary text-white ms-auto">
