@@ -59,6 +59,9 @@ class DashboardController extends Controller
                 'receivablesAging' => [],
                 'branches' => collect(),
                 'selectedBranchId' => null,
+                'kpiDateFrom' => now()->toDateString(),
+                'kpiDateTo' => now()->toDateString(),
+                'kpiPeriodLabel' => 'Today',
                 'pendingApprovalsCount' => 0,
             ]);
         }
@@ -76,6 +79,30 @@ class DashboardController extends Controller
             session(['branch_id' => $branchId]);
         }
         $today = now()->toDateString();
+        $kpiDateFrom = $today;
+        $kpiDateTo = $today;
+        if ($requestDateFrom = request('date_from')) {
+            try {
+                $kpiDateFrom = \Carbon\Carbon::parse($requestDateFrom)->toDateString();
+            } catch (\Exception $e) {
+                $kpiDateFrom = $today;
+            }
+        }
+        if ($requestDateTo = request('date_to')) {
+            try {
+                $kpiDateTo = \Carbon\Carbon::parse($requestDateTo)->toDateString();
+            } catch (\Exception $e) {
+                $kpiDateTo = $today;
+            }
+        }
+        if ($kpiDateFrom > $kpiDateTo) {
+            [$kpiDateFrom, $kpiDateTo] = [$kpiDateTo, $kpiDateFrom];
+        }
+        $kpiPeriodLabel = $kpiDateFrom === $kpiDateTo
+            ? ($kpiDateFrom === $today
+                ? 'Today'
+                : \Carbon\Carbon::parse($kpiDateFrom)->format('d-m-Y'))
+            : \Carbon\Carbon::parse($kpiDateFrom)->format('d-m-Y') . ' to ' . \Carbon\Carbon::parse($kpiDateTo)->format('d-m-Y');
         $startOfMonth = now()->startOfMonth()->toDateString();
         $endOfMonth = now()->endOfMonth()->toDateString();
 
@@ -377,46 +404,52 @@ class DashboardController extends Controller
         $patientsAdmittedToday = Patient::where('company_id', $company->id)
             ->when(!empty($permittedBranchIds), fn($q) => $q->whereIn('branch_id', $permittedBranchIds))
             ->when($branchId, fn($q) => $q->where('branch_id', $branchId))
-            ->whereDate('admitted_date', $today)
+            ->whereDate('admitted_date', '>=', $kpiDateFrom)
+            ->whereDate('admitted_date', '<=', $kpiDateTo)
             ->count();
 
         $totalVisitsToday = Visit::where('company_id', $company->id)
             ->when(!empty($permittedBranchIds), fn($q) => $q->whereIn('branch_id', $permittedBranchIds))
             ->when($branchId, fn($q) => $q->where('branch_id', $branchId))
-            ->whereDate('visit_date', $today)
+            ->whereDate('visit_date', '>=', $kpiDateFrom)
+            ->whereDate('visit_date', '<=', $kpiDateTo)
             ->count();
 
-        // Cash Collected Today — visit cash/mobile payments plus invoice receipts
+        // Cash collected in selected period — visit cash/mobile payments plus invoice receipts
         $receiptsToday = Receipt::whereHas('branch', function ($query) use ($company) {
                 $query->where('company_id', $company->id);
             })
             ->when(!empty($permittedBranchIds), fn($q) => $q->whereIn('branch_id', $permittedBranchIds))
             ->when($branchId, fn($q) => $q->where('branch_id', $branchId))
             ->whereIn('reference_type', ['sales_invoice', 'manual'])
-            ->whereDate('date', $today)
+            ->whereDate('date', '>=', $kpiDateFrom)
+            ->whereDate('date', '<=', $kpiDateTo)
             ->sum('amount');
 
         $visitCashToday = VisitPayment::where('company_id', $company->id)
             ->when(!empty($permittedBranchIds), fn($q) => $q->whereIn('branch_id', $permittedBranchIds))
             ->when($branchId, fn($q) => $q->where('branch_id', $branchId))
-            ->whereDate('payment_date', $today)
+            ->whereDate('payment_date', '>=', $kpiDateFrom)
+            ->whereDate('payment_date', '<=', $kpiDateTo)
             ->whereIn('payment_method', ['cash', 'mobile_payment'])
             ->sum('amount');
 
         $cashCollectedToday = (float) $receiptsToday + (float) $visitCashToday;
 
-        // Insurance payments today — visit insurance methods plus insurance invoice payments
+        // Insurance payments in selected period
         $visitInsuranceToday = VisitPayment::where('company_id', $company->id)
             ->when(!empty($permittedBranchIds), fn($q) => $q->whereIn('branch_id', $permittedBranchIds))
             ->when($branchId, fn($q) => $q->where('branch_id', $branchId))
-            ->whereDate('payment_date', $today)
+            ->whereDate('payment_date', '>=', $kpiDateFrom)
+            ->whereDate('payment_date', '<=', $kpiDateTo)
             ->whereIn('payment_method', ['nhif', 'chf', 'jubilee', 'strategy'])
             ->sum('amount');
 
         $invoiceInsuranceToday = InsuranceInvoicePayment::where('company_id', $company->id)
             ->when(!empty($permittedBranchIds), fn($q) => $q->whereIn('branch_id', $permittedBranchIds))
             ->when($branchId, fn($q) => $q->where('branch_id', $branchId))
-            ->whereDate('payment_date', $today)
+            ->whereDate('payment_date', '>=', $kpiDateFrom)
+            ->whereDate('payment_date', '<=', $kpiDateTo)
             ->sum('amount');
 
         $insurancePaidToday = (float) $visitInsuranceToday + (float) $invoiceInsuranceToday;
@@ -516,6 +549,9 @@ class DashboardController extends Controller
             'receivablesAging' => $receivablesAging,
             'branches' => $branches,
             'selectedBranchId' => $branchId,
+            'kpiDateFrom' => $kpiDateFrom,
+            'kpiDateTo' => $kpiDateTo,
+            'kpiPeriodLabel' => $kpiPeriodLabel,
         ]);
     }
 

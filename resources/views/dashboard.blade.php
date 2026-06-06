@@ -131,7 +131,7 @@ use Vinkla\Hashids\Facades\Hashids;
                                     <h5 class="mb-0 text-primary">Dashboard
                                     </h5>
                                 </div>
-                                <p class="mb-0 text-muted">Here's what's happening with your financial data today</p>
+                                <p class="mb-0 text-muted">Hospital activity overview — use the date filter below for daily metrics</p>
                             </div>
                             <div class="col-md-4 text-end">
                                 <div class="d-flex gap-2 justify-content-end">
@@ -146,38 +146,49 @@ use Vinkla\Hashids\Facades\Hashids;
             </div>
         </div>
 
-        <!-- Branch Filter -->
-        <div class="row mb-3">
+        <!-- Activity Date Filter (Patients Admitted, Visits, Cash, Insurance) -->
+        <div class="row mt-3">
             <div class="col-12">
-                <div class="card">
+                <div class="card border-primary border-2">
+                    <div class="card-header bg-primary text-white py-2">
+                        <h6 class="mb-0"><i class="bx bx-calendar me-2"></i>Activity Date Filter</h6>
+                    </div>
                     <div class="card-body">
-                        <form method="GET" action="{{ route('dashboard') }}" class="d-flex align-items-center">
-                            <div class="me-3">
-                                <label for="branch_id" class="form-label mb-0"><strong>Filter Dashboard By Branch:</strong></label>
-                            </div>
-                            <div class="me-3">
-                                <select name="branch_id" id="branch_id" class="form-select" onchange="this.form.submit()">
-                                    <option value="">All Branches</option>
-                                    @foreach($branches as $branch)
-                                        <option value="{{ $branch->id }}" {{ $selectedBranchId == $branch->id ? 'selected' : '' }}>
-                                            {{ $branch->name }}
-                                        </option>
-                                    @endforeach
-                                </select>
-                            </div>
+                        <form method="GET" action="{{ route('dashboard') }}" class="row g-3 align-items-end">
                             @if($selectedBranchId)
-                                <div class="me-3">
-                                    <span class="badge bg-primary">
-                                        Showing: {{ $branches->where('id', $selectedBranchId)->first()->name ?? 'Selected Branch' }}
-                                    </span>
-                                </div>
+                                <input type="hidden" name="branch_id" id="branch_id" value="{{ $selectedBranchId }}">
+                            @else
+                                <input type="hidden" id="branch_id" value="">
                             @endif
+                            <div class="col-md-4">
+                                <label for="date_from" class="form-label fw-bold">From</label>
+                                <input type="date" name="date_from" id="date_from" class="form-control form-control-lg"
+                                       value="{{ $kpiDateFrom ?? now()->toDateString() }}" required>
+                            </div>
+                            <div class="col-md-4">
+                                <label for="date_to" class="form-label fw-bold">To</label>
+                                <input type="date" name="date_to" id="date_to" class="form-control form-control-lg"
+                                       value="{{ $kpiDateTo ?? now()->toDateString() }}" required>
+                            </div>
+                            <div class="col-md-4 d-flex gap-2">
+                                <button type="submit" class="btn btn-primary btn-lg flex-grow-1">
+                                    <i class="bx bx-filter-alt me-1"></i> Apply Filter
+                                </button>
+                                <a href="{{ route('dashboard') }}" class="btn btn-outline-secondary btn-lg" title="Reset to today">
+                                    Today
+                                </a>
+                            </div>
+                            <div class="col-12">
+                                <span class="badge bg-info fs-6">
+                                    Showing: {{ $kpiPeriodLabel ?? 'Today' }}
+                                </span>
+                                <small class="text-muted ms-2">Applies to Patients Admitted, Visits, Cash Collected, and Insurance below.</small>
+                            </div>
                         </form>
                     </div>
                 </div>
             </div>
         </div>
-
 
         <div class="row mt-3">
             <div class="col-xl-3 col-md-6">
@@ -207,10 +218,10 @@ use Vinkla\Hashids\Facades\Hashids;
                     <div class="card-body">
                         <div class="d-flex align-items-center">
                             <div class="flex-grow-1">
-                                <p class="mb-0 text-secondary">Patients Admitted Today</p>
+                                <p class="mb-0 text-secondary">Patients Admitted</p>
                                 <h4 class="my-1 text-primary">{{ $patientsAdmittedToday ?? 0 }}</h4>
                                 <p class="mb-0 font-13">
-                                    <span class="text-primary"><i class="bx bx-bed align-middle"></i> New admissions today</span>
+                                    <span class="text-primary"><i class="bx bx-bed align-middle"></i> {{ $kpiPeriodLabel ?? 'Today' }}</span>
                                 </p>
                             </div>
                             <div class="widgets-icons-2 rounded-circle bg-gradient-primary text-white ms-auto">
@@ -227,10 +238,10 @@ use Vinkla\Hashids\Facades\Hashids;
                         <div class="card-body position-relative">
                             <div class="d-flex align-items-center">
                                 <div class="flex-grow-1">
-                                    <p class="mb-0 text-secondary">Total Visits Today</p>
+                                    <p class="mb-0 text-secondary">Total Visits</p>
                                     <h4 class="my-1 text-secondary">{{ $totalVisitsToday ?? 0 }}</h4>
                                     <p class="mb-0 font-13">
-                                        <span class="text-secondary"><i class="bx bx-calendar-check align-middle"></i> Patient visits today</span>
+                                        <span class="text-secondary"><i class="bx bx-calendar-check align-middle"></i> {{ $kpiPeriodLabel ?? 'Today' }}</span>
                                     </p>
                                 </div>
                                 <div class="widgets-icons-2 rounded-circle bg-gradient-blooker text-white ms-auto">
@@ -270,10 +281,10 @@ use Vinkla\Hashids\Facades\Hashids;
                     <div class="card-body">
                         <div class="d-flex align-items-center">
                             <div class="flex-grow-1">
-                                <p class="mb-0 text-secondary">Cash Collected Today</p>
+                                <p class="mb-0 text-secondary">Cash Collected</p>
                                 <h4 class="my-1 text-success">TZS {{ number_format($cashCollectedToday ?? 0, 2) }}</h4>
                                 <p class="mb-0 font-13">
-                                    <span class="text-success"><i class="bx bx-money align-middle"></i> Cash & mobile payments today</span>
+                                    <span class="text-success"><i class="bx bx-money align-middle"></i> Cash & mobile · {{ $kpiPeriodLabel ?? 'Today' }}</span>
                                 </p>
                             </div>
                             <div class="widgets-icons-2 rounded-circle bg-gradient-success text-white ms-auto">
@@ -289,10 +300,10 @@ use Vinkla\Hashids\Facades\Hashids;
                     <div class="card-body">
                         <div class="d-flex align-items-center">
                             <div class="flex-grow-1">
-                                <p class="mb-0 text-secondary">Total Paid by Insurance Today</p>
+                                <p class="mb-0 text-secondary">Paid by Insurance</p>
                                 <h4 class="my-1 text-warning">TZS {{ number_format($insurancePaidToday ?? 0, 2) }}</h4>
                                 <p class="mb-0 font-13">
-                                    <span class="text-warning"><i class="bx bx-shield-quarter align-middle"></i> NHIF, CHF & other insurance</span>
+                                    <span class="text-warning"><i class="bx bx-shield-quarter align-middle"></i> NHIF, CHF & other · {{ $kpiPeriodLabel ?? 'Today' }}</span>
                                 </p>
                             </div>
                             <div class="widgets-icons-2 rounded-circle bg-gradient-warning text-white ms-auto">
