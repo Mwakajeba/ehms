@@ -305,6 +305,7 @@ class ReceptionController extends Controller
             $branchId = session('branch_id') ?? $user->branch_id;
 
             $validated = $this->applyInsuranceTypeToPatientData($validated, $companyId);
+            $validated = $this->normalizePatientPhoneFields($validated);
 
             if (empty($validated['admitted_date'])) {
                 $validated['admitted_date'] = now()->toDateString();
@@ -344,9 +345,6 @@ class ReceptionController extends Controller
     /**
      * Send welcome SMS to newly registered patient
      */
-    /**
-     * Resolve insurance_type_id to company-scoped type and set insurance_type label.
-     */
     protected function applyInsuranceTypeToPatientData(array $data, int $companyId): array
     {
         $noneType = HospitalInsuranceType::forCompany($companyId)
@@ -370,6 +368,17 @@ class ReceptionController extends Controller
         }
 
         $data['insurance_type'] = $insuranceType->name;
+
+        return $data;
+    }
+
+    protected function normalizePatientPhoneFields(array $data): array
+    {
+        foreach (['phone', 'next_of_kin_phone'] as $field) {
+            if (!empty($data[$field]) && function_exists('normalize_phone_number')) {
+                $data[$field] = normalize_phone_number($data[$field]);
+            }
+        }
 
         return $data;
     }
@@ -497,6 +506,7 @@ class ReceptionController extends Controller
         try {
             $patient = Patient::findOrFail($id);
             $validated = $this->applyInsuranceTypeToPatientData($validated, $patient->company_id);
+            $validated = $this->normalizePatientPhoneFields($validated);
             $patient->update(array_merge($validated, [
                 'updated_by' => Auth::id(),
             ]));
