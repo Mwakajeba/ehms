@@ -168,8 +168,9 @@
                                         <div class="col-md-6">
                                             <div class="mb-3">
                                                 <label for="phone" class="form-label fw-bold">Phone Number</label>
-                                                <input type="text" class="form-control @error('phone') is-invalid @enderror"
-                                                       id="phone" name="phone" value="{{ old('phone') }}" placeholder="255655577803">
+                                                <input type="text" class="form-control tz-phone-input @error('phone') is-invalid @enderror"
+                                                       id="phone" name="phone" value="{{ old('phone') }}" placeholder="255655577803" maxlength="12">
+                                                <div class="form-text">Tanzania format: 255 followed by 9 digits (e.g. 255655577803).</div>
                                                 @error('phone')
                                                     <div class="invalid-feedback">{{ $message }}</div>
                                                 @enderror
@@ -221,8 +222,8 @@
                                         <div class="col-md-6">
                                             <div class="mb-3">
                                                 <label for="next_of_kin_phone" class="form-label fw-bold">Next of Kin Phone (Mobile)</label>
-                                                <input type="text" class="form-control @error('next_of_kin_phone') is-invalid @enderror"
-                                                       id="next_of_kin_phone" name="next_of_kin_phone" value="{{ old('next_of_kin_phone') }}">
+                                                <input type="text" class="form-control tz-phone-input @error('next_of_kin_phone') is-invalid @enderror"
+                                                       id="next_of_kin_phone" name="next_of_kin_phone" value="{{ old('next_of_kin_phone') }}" placeholder="255655577803" maxlength="12">
                                                 @error('next_of_kin_phone')
                                                     <div class="invalid-feedback">{{ $message }}</div>
                                                 @enderror
@@ -360,4 +361,5 @@
         }
     }
 </script>
+@include('hospital.reception.patients._phone_format_script')
 @endpush
