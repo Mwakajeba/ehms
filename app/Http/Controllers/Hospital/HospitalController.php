@@ -29,6 +29,10 @@ class HospitalController extends Controller
             'patients' => [
                 'total' => Patient::byCompany($companyId)->byBranch($branchId)->active()->count(),
                 'today' => Patient::byCompany($companyId)->byBranch($branchId)->whereDate('created_at', today())->count(),
+                'with_phone' => Patient::byCompany($companyId)->byBranch($branchId)->active()
+                    ->whereNotNull('phone')
+                    ->where('phone', '!=', '')
+                    ->count(),
             ],
             'visits' => [
                 'total' => Visit::where('company_id', $companyId)->where('branch_id', $branchId)->count(),

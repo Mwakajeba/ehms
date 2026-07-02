@@ -309,6 +309,24 @@
                                 </div>
                                 @endcan
 
+                                @can('view reception')
+                                <div class="col-md-6 col-lg-4 mb-4">
+                                    <div class="card module-card h-100">
+                                        <div class="count-badge bg-info">{{ number_format($stats['patients']['with_phone'] ?? 0) }}</div>
+                                        <div class="card-body text-center">
+                                            <div class="mb-3">
+                                                <i class="bx bx-message-rounded-dots text-info" style="font-size: 3rem;"></i>
+                                            </div>
+                                            <h5 class="card-title">Patient SMS</h5>
+                                            <p class="card-text">Send a single SMS to one patient or bulk SMS to all patients with phone numbers in this branch.</p>
+                                            <button type="button" class="btn btn-info text-white" data-bs-toggle="modal" data-bs-target="#patientSmsModal">
+                                                <i class="bx bx-send me-1"></i>Send SMS
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                                @endcan
+
                                 @can('view hospital reports')
                                 <div class="col-md-6 col-lg-4 mb-4">
                                     <div class="card module-card h-100">
@@ -373,4 +391,6 @@
             </div>
         </div>
     </div>
+
+    @include('hospital.partials.patient-sms-modal')
 @endsection

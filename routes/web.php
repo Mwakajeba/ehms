@@ -864,6 +864,8 @@ Route::get('/hr-payroll/payroll-settings', [App\Http\Controllers\PayrollSettings
 ////////////////////////////////////////////// HOSPITAL MANAGEMENT ROUTES ////////////////////////////////////////////////
 
 Route::get('/hospital', [App\Http\Controllers\Hospital\HospitalController::class, 'index'])->name('hospital.index')->middleware(['auth', 'company.scope', 'require.branch']);
+Route::get('/hospital/sms/patients-search', [App\Http\Controllers\Hospital\HospitalSmsController::class, 'searchPatients'])->name('hospital.sms.patients-search')->middleware(['auth', 'company.scope', 'require.branch']);
+Route::post('/hospital/sms/send', [App\Http\Controllers\Hospital\HospitalSmsController::class, 'send'])->name('hospital.sms.send')->middleware(['auth', 'company.scope', 'require.branch']);
 
 // Reception Routes
 Route::prefix('hospital/reception')->name('hospital.reception.')->middleware(['auth', 'company.scope', 'require.branch'])->group(function () {
